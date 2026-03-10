@@ -15,10 +15,12 @@ xero doctor
 
 ## Configuration
 
-- precedence: `flags > env vars > persisted config`
+- precedence: `flags > env vars (including local .env) > persisted config`
 - config file: `~/.config/xero/config.json`
 - session metadata: `~/.config/xero/session.json`
 - token storage: `~/.config/xero/tokens.json` with `0600` permissions for MVP
+
+In normal usage, the CLI reads `~/.config/xero/config.json` for non-secret persisted defaults like tenant and output mode. For development convenience, it also loads a local `.env` file from the current working directory when present.
 
 ### Environment variables
 
@@ -28,6 +30,8 @@ export XERO_AUTH_CLIENT_SECRET="your-client-secret"
 export XERO_TENANT="your-default-tenant-id"
 export XERO_AUTH_OPEN_COMMAND="open"
 ```
+
+You can also copy `.env.example` to `.env` for local development.
 
 ## Auth flow
 

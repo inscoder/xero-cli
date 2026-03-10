@@ -45,3 +45,56 @@ func TestLoadAppliesFlagEnvThenPersistedConfigPrecedence(t *testing.T) {
 		t.Fatal("expected persisted json output mode to load")
 	}
 }
+
+func TestConfigureViperLoadsDotEnvForDevelopment(t *testing.T) {
+	tempDir := t.TempDir()
+	originalClientID, hadClientID := os.LookupEnv("XERO_AUTH_CLIENT_ID")
+	originalClientSecret, hadClientSecret := os.LookupEnv("XERO_AUTH_CLIENT_SECRET")
+	defer func() {
+		if hadClientID {
+			_ = os.Setenv("XERO_AUTH_CLIENT_ID", originalClientID)
+		} else {
+			_ = os.Unsetenv("XERO_AUTH_CLIENT_ID")
+		}
+		if hadClientSecret {
+			_ = os.Setenv("XERO_AUTH_CLIENT_SECRET", originalClientSecret)
+		} else {
+			_ = os.Unsetenv("XERO_AUTH_CLIENT_SECRET")
+		}
+	}()
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("XERO_AUTH_CLIENT_ID=client-from-dotenv\nXERO_AUTH_CLIENT_SECRET=secret-from-dotenv\n"), 0o600); err != nil {
+		t.Fatalf("write .env: %v", err)
+	}
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(previous) }()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+
+	v := viper.New()
+	appconfig.ConfigureViper(v)
+	v.Set("config", configPath)
+
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	settings, err := manager.Load(false, "test")
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+
+	if settings.ClientID != "client-from-dotenv" {
+		t.Fatalf("expected .env client id, got %q", settings.ClientID)
+	}
+	if settings.ClientSecret != "secret-from-dotenv" {
+		t.Fatalf("expected .env client secret, got %q", settings.ClientSecret)
+	}
+}

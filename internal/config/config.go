@@ -11,6 +11,7 @@ import (
 
 	clierrors "github.com/cesar/xero-cli/internal/errors"
 	"github.com/spf13/viper"
+	"github.com/subosito/gotenv"
 )
 
 const (
@@ -87,6 +88,7 @@ func defaultConfigDir() (string, error) {
 }
 
 func ConfigureViper(v *viper.Viper) {
+	loadDotEnv()
 	v.SetEnvPrefix("XERO")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
@@ -104,6 +106,13 @@ func ConfigureViper(v *viper.Viper) {
 	v.SetDefault("auth.open_command", "")
 	v.SetDefault("output.json", false)
 	v.SetDefault("output.quiet", false)
+}
+
+func loadDotEnv() {
+	if _, err := os.Stat(".env"); err != nil {
+		return
+	}
+	_ = gotenv.Load(".env")
 }
 
 func (m *Manager) Load(interactive bool, version string) (Settings, error) {

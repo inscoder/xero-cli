@@ -11,6 +11,7 @@
 - stores tokens in `~/.config/xero/tokens.json` with `0600` permissions for MVP
 - writes non-secret metadata to `~/.config/xero/session.json`
 - prompts for a default tenant when multiple tenants are returned
+- loads a local `.env` file from the current working directory when present, which is useful for local development secrets
 
 ## Refresh policy
 
@@ -22,6 +23,7 @@
 ## Troubleshooting
 
 - missing client ID: set `XERO_AUTH_CLIENT_ID`
+- local development: copy `.env.example` to `.env` and set `XERO_AUTH_CLIENT_ID` / `XERO_AUTH_CLIENT_SECRET`
 - callback timeout: verify the browser can reach `127.0.0.1`
 - stale tenant: rerun `xero auth login` to discover and choose a valid tenant again
 - token storage: inspect `~/.config/xero/tokens.json` permissions and rerun `xero doctor`
