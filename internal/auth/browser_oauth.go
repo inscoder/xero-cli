@@ -24,6 +24,8 @@ const (
 	authorizeEndpoint = "https://login.xero.com/identity/connect/authorize"
 	tokenEndpoint     = "https://identity.xero.com/connect/token"
 	connectionsURL    = "https://api.xero.com/connections"
+	redirectURL       = "http://localhost:3000/callback"
+	listenAddress     = "localhost:3000"
 )
 
 type BrowserAuth struct {
@@ -34,6 +36,8 @@ type BrowserAuth struct {
 	authorizeURL   string
 	tokenURL       string
 	connectionsURL string
+	redirectURL    string
+	listenAddress  string
 	errOut         io.Writer
 	in             io.Reader
 	tenantStore    *TenantStore
@@ -47,6 +51,8 @@ type BrowserAuthOptions struct {
 	AuthorizeURL   string
 	TokenURL       string
 	ConnectionsURL string
+	RedirectURL    string
+	ListenAddress  string
 }
 
 type LoginResult struct {
@@ -96,6 +102,8 @@ func NewBrowserAuthWithOptions(settings appconfig.Settings, store TokenStore, te
 		authorizeURL:   firstNonEmpty(options.AuthorizeURL, authorizeEndpoint),
 		tokenURL:       firstNonEmpty(options.TokenURL, tokenEndpoint),
 		connectionsURL: firstNonEmpty(options.ConnectionsURL, connectionsURL),
+		redirectURL:    firstNonEmpty(options.RedirectURL, redirectURL),
+		listenAddress:  firstNonEmpty(options.ListenAddress, listenAddress),
 		errOut:         errOut,
 		in:             in,
 		tenantStore:    tenantStore,
@@ -127,14 +135,17 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 		return LoginResult{}, clierrors.Wrap(clierrors.KindInternal, "generate OAuth state", err)
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	callbackURL, err := url.Parse(a.redirectURL)
 	if err != nil {
-		return LoginResult{}, clierrors.Wrap(clierrors.KindNetwork, "start loopback OAuth listener", err)
+		return LoginResult{}, clierrors.Wrap(clierrors.KindValidation, "parse configured OAuth redirect URL", err)
+	}
+	listener, err := net.Listen("tcp", a.listenAddress)
+	if err != nil {
+		return LoginResult{}, clierrors.Wrap(clierrors.KindNetwork, fmt.Sprintf("start OAuth callback listener on %s", a.listenAddress), err)
 	}
 	defer listener.Close()
 
-	redirectURL := fmt.Sprintf("http://127.0.0.1:%d/oauth/callback", listener.Addr().(*net.TCPAddr).Port)
-	authURL := buildAuthorizeURL(a.authorizeURL, a.settings.ClientID, redirectURL, a.settings.XeroScopes, state, codeVerifier)
+	authURL := buildAuthorizeURL(a.authorizeURL, a.settings.ClientID, a.redirectURL, a.settings.XeroScopes, state, codeVerifier)
 
 	ctx, cancel := context.WithTimeout(ctx, a.settings.CallbackTimeout)
 	defer cancel()
@@ -142,6 +153,10 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 	resultCh := make(chan url.Values, 1)
 	errCh := make(chan error, 1)
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != callbackURL.Path {
+			http.NotFound(w, r)
+			return
+		}
 		values := r.URL.Query()
 		if values.Get("state") != state {
 			http.Error(w, "OAuth state mismatch", http.StatusBadRequest)
@@ -169,7 +184,7 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 		if pasted.Get("state") != state {
 			return LoginResult{}, clierrors.New(clierrors.KindAuthRequired, "pasted redirect URL had an invalid OAuth state")
 		}
-		return a.finishLogin(ctx, redirectURL, codeVerifier, pasted.Get("code"))
+		return a.finishLogin(ctx, a.redirectURL, codeVerifier, pasted.Get("code"))
 	}
 
 	fmt.Fprintln(a.errOut, "Waiting for browser authentication callback...")
@@ -179,7 +194,7 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 	case err := <-errCh:
 		return LoginResult{}, err
 	case values := <-resultCh:
-		return a.finishLogin(ctx, redirectURL, codeVerifier, values.Get("code"))
+		return a.finishLogin(ctx, a.redirectURL, codeVerifier, values.Get("code"))
 	}
 }
 

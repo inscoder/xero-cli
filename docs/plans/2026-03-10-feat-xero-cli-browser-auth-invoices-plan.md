@@ -27,7 +27,7 @@ This feature creates a simpler product path: a terminal-native CLI that can log 
 
 Build a new CLI application named `xero` with these initial capabilities:
 
-1. `xero auth login` performs browser-based OAuth using Authorization Code + PKCE with a loopback redirect.
+1. `xero auth login` performs browser-based OAuth using Authorization Code + PKCE with a fixed local redirect at `http://localhost:3000/callback`.
 2. `xero auth status` reports auth health, active auth mode, token state, and default tenant without exposing secrets.
 3. `xero auth logout` clears persisted auth state.
 4. `xero invoices` lists invoices by calling the Xero Accounting API behind a CLI-friendly command contract.
@@ -79,7 +79,7 @@ test/integration/xero_invoices_integration_test.go
 Recommended boundaries:
 
 - `cmd/xero/main.go`: bootstrap the root Cobra command and shared flags
-- `internal/auth/browser_oauth.go`: PKCE, state generation, loopback callback, browser open/fallback URL flow
+- `internal/auth/browser_oauth.go`: PKCE, state generation, localhost callback handling, browser open/fallback URL flow
 - `internal/auth/token_store.go`: persisted token load/save/refresh with locking and generated-at timestamps
 - `internal/auth/tenant_store.go`: tenant discovery, default tenant persistence, override resolution
 - `internal/xeroapi/client.go`: one integration layer for invoking Xero REST endpoints such as `GET /api.xro/2.0/Invoices`
@@ -121,7 +121,7 @@ Default behavior:
 Browser auth should follow desktop-app best practices:
 
 - Use Authorization Code + PKCE (`S256`).
-- Use loopback redirect on `127.0.0.1` with an ephemeral port.
+- Use the fixed redirect URI `http://localhost:3000/callback`.
 - Validate `state` on callback.
 - Open the system browser; if that fails, print a one-time auth URL and wait for callback or pasted code.
 - Persist each token's generated date/time and only refresh when the current token is older than 25 minutes, since the token lifetime is 30 minutes.
@@ -338,7 +338,7 @@ The plan should preserve conceptual parity between Xero resources and CLI verbs.
 
 ### Functional Requirements
 
-- [x] `xero auth login` opens the system browser using loopback OAuth on `127.0.0.1` with PKCE S256 and validates `state`
+- [x] `xero auth login` opens the system browser using OAuth on `http://localhost:3000/callback` with PKCE S256 and validates `state`
 - [x] successful login persists auth state for subsequent CLI runs
 - [x] persisted auth state includes the token generated date/time used to decide refresh timing
 - [x] successful login discovers Xero tenants and supports choosing a default tenant when multiple are available

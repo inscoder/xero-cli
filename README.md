@@ -27,15 +27,18 @@ In normal usage, the CLI reads `~/.config/xero/config.json` for non-secret persi
 ```bash
 export XERO_AUTH_CLIENT_ID="your-client-id"
 export XERO_AUTH_CLIENT_SECRET="your-client-secret"
+export XERO_AUTH_SCOPES="openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read accounting.reports.read"
 export XERO_TENANT="your-default-tenant-id"
 export XERO_AUTH_OPEN_COMMAND="open"
 ```
 
 You can also copy `.env.example` to `.env` for local development.
 
+You must set scopes explicitly with `XERO_AUTH_SCOPES` or add a `scopes` array to `~/.config/xero/config.json`; the CLI no longer assumes a default scope set.
+
 ## Auth flow
 
-`xero auth login` starts a loopback OAuth callback on `127.0.0.1`, opens the system browser, exchanges the authorization code using PKCE S256, discovers available tenants, and persists the chosen default tenant for later commands.
+`xero auth login` starts a local OAuth callback on `http://localhost:3000/callback`, opens the system browser, exchanges the authorization code using PKCE S256, discovers available tenants, and persists the chosen default tenant for later commands.
 
 Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes only when the token is older than 25 minutes.
 

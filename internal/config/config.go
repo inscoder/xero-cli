@@ -22,9 +22,10 @@ const (
 )
 
 type FileConfig struct {
-	DefaultTenantID   string `json:"defaultTenantId,omitempty"`
-	DefaultTenantName string `json:"defaultTenantName,omitempty"`
-	OutputMode        string `json:"outputMode,omitempty"`
+	DefaultTenantID   string   `json:"defaultTenantId,omitempty"`
+	DefaultTenantName string   `json:"defaultTenantName,omitempty"`
+	OutputMode        string   `json:"outputMode,omitempty"`
+	Scopes            []string `json:"scopes,omitempty"`
 }
 
 type Settings struct {
@@ -94,15 +95,6 @@ func ConfigureViper(v *viper.Viper) {
 	v.AutomaticEnv()
 	v.SetDefault("auth.callback_timeout", "2m")
 	v.SetDefault("auth.refresh_after", "25m")
-	v.SetDefault("auth.scopes", []string{
-		"offline_access",
-		"accounting.transactions",
-		"accounting.transactions.read",
-		"accounting.invoices",
-		"accounting.invoices.read",
-		"accounting.contacts",
-		"accounting.settings",
-	})
 	v.SetDefault("auth.open_command", "")
 	v.SetDefault("output.json", false)
 	v.SetDefault("output.quiet", false)
@@ -136,6 +128,11 @@ func (m *Manager) Load(interactive bool, version string) (Settings, error) {
 		return Settings{}, clierrors.Wrap(clierrors.KindValidation, "invalid auth refresh threshold", err)
 	}
 
+	scopes := stringSliceValue(m.viper, "auth.scopes")
+	if len(scopes) == 0 && len(fileCfg.Scopes) > 0 {
+		scopes = append([]string(nil), fileCfg.Scopes...)
+	}
+
 	settings := Settings{
 		ConfigDir:         m.configDir,
 		ConfigFilePath:    m.configFile,
@@ -153,7 +150,7 @@ func (m *Manager) Load(interactive bool, version string) (Settings, error) {
 		CallbackTimeout:   callbackTimeout,
 		RefreshAfter:      refreshAfter,
 		Interactive:       interactive,
-		XeroScopes:        stringSliceValue(m.viper, "auth.scopes"),
+		XeroScopes:        scopes,
 		OpenCommand:       m.viper.GetString("auth.open_command"),
 		Version:           version,
 	}
@@ -280,6 +277,9 @@ func stringSliceValue(v *viper.Viper, key string) []string {
 func ValidateLoginConfig(settings Settings) error {
 	if strings.TrimSpace(settings.ClientID) == "" {
 		return clierrors.New(clierrors.KindValidation, "missing Xero OAuth client ID; set XERO_AUTH_CLIENT_ID or use --client-id")
+	}
+	if len(settings.XeroScopes) == 0 {
+		return clierrors.New(clierrors.KindValidation, "missing Xero OAuth scopes; set XERO_AUTH_SCOPES or add `scopes` to ~/.config/xero/config.json")
 	}
 	return nil
 }

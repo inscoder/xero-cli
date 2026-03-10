@@ -3,9 +3,11 @@ package auth_test
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,10 +20,16 @@ import (
 
 func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	fixedNow := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	port := freePort(t)
+	callbackURL := "http://localhost:" + strconv.Itoa(port) + "/callback"
+	listenAddress := "localhost:" + strconv.Itoa(port)
 	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/authorize":
 			redirectURI := r.URL.Query().Get("redirect_uri")
+			if redirectURI != callbackURL {
+				t.Fatalf("unexpected redirect URI: %q", redirectURI)
+			}
 			state := r.URL.Query().Get("state")
 			http.Redirect(w, r, redirectURI+"?code=code-123&state="+state, http.StatusFound)
 		case "/token":
@@ -48,6 +56,7 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	appconfig.ConfigureViper(v)
 	v.Set("config", tempDir+"/config.json")
 	v.Set("auth.client_id", "client-123")
+	v.Set("auth.scopes", []string{"openid", "profile", "email"})
 	v.Set("auth.callback_timeout", "10s")
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
@@ -66,6 +75,8 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 		AuthorizeURL:   authServer.URL + "/authorize",
 		TokenURL:       authServer.URL + "/token",
 		ConnectionsURL: authServer.URL + "/connections",
+		RedirectURL:    callbackURL,
+		ListenAddress:  listenAddress,
 		Now:            func() time.Time { return fixedNow },
 		OpenBrowser: func(target string) error {
 			resp, err := authServer.Client().Get(target)
@@ -101,6 +112,16 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	if manager.LoadedConfig().DefaultTenantID != "tenant-1" {
 		t.Fatalf("expected config default tenant to persist, got %+v", manager.LoadedConfig())
 	}
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for free port: %v", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port
 }
 
 func TestShouldRefreshUsesGeneratedAtThreshold(t *testing.T) {
