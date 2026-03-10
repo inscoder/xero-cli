@@ -11,11 +11,19 @@ import (
 
 func WriteInvoices(writer io.Writer, invoices []xeroapi.Invoice, summary string, breadcrumbs []Breadcrumb) error {
 	tw := tabwriter.NewWriter(writer, 0, 2, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "NUMBER\tCONTACT\tSTATUS\tTOTAL\tDUE\tUPDATED"); err != nil {
+	if _, err := fmt.Fprintln(tw, "NUMBER\tCONTACT\tSTATUS\tTOTAL\tAMOUNT DUE\tUPDATED"); err != nil {
 		return err
 	}
 	for _, invoice := range invoices {
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%.2f %s\t%.2f\t%s\n", invoice.InvoiceNumber, invoice.ContactName, invoice.Status, invoice.Total, invoice.Currency, invoice.AmountDue, invoice.UpdatedAt); err != nil {
+		contactName := invoice.Contact.Name
+		if contactName == "" {
+			contactName = invoice.ContactName
+		}
+		currencyCode := invoice.CurrencyCode
+		if currencyCode == "" {
+			currencyCode = invoice.Currency
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%.2f %s\t%.2f\t%s\n", invoice.InvoiceNumber, contactName, invoice.Status, invoice.Total, currencyCode, invoice.AmountDue, invoice.UpdatedAt); err != nil {
 			return err
 		}
 	}

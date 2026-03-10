@@ -21,24 +21,93 @@ const defaultBaseURL = "https://api.xero.com"
 var xeroDatePattern = regexp.MustCompile(`^/Date\((\d+)([+-]\d{4})?\)/$`)
 
 type Invoice struct {
-	InvoiceID     string  `json:"invoiceId"`
-	InvoiceNumber string  `json:"invoiceNumber"`
-	ContactName   string  `json:"contactName,omitempty"`
-	Status        string  `json:"status,omitempty"`
-	Total         float64 `json:"total,omitempty"`
-	AmountDue     float64 `json:"amountDue,omitempty"`
-	Currency      string  `json:"currency,omitempty"`
-	DueDate       string  `json:"dueDate,omitempty"`
-	UpdatedAt     string  `json:"updatedAt,omitempty"`
+	InvoiceID           string              `json:"invoiceId"`
+	Type                string              `json:"type"`
+	InvoiceNumber       string              `json:"invoiceNumber"`
+	Reference           string              `json:"reference"`
+	Contact             InvoiceContact      `json:"contact,omitempty"`
+	Date                string              `json:"date"`
+	DueDate             string              `json:"dueDate"`
+	Status              string              `json:"status"`
+	LineAmountTypes     string              `json:"lineAmountTypes"`
+	LineItems           []InvoiceLineItem   `json:"lineItems"`
+	SubTotal            float64             `json:"subTotal"`
+	TotalTax            float64             `json:"totalTax"`
+	Total               float64             `json:"total"`
+	TotalDiscount       float64             `json:"totalDiscount"`
+	AmountDue           float64             `json:"amountDue"`
+	AmountPaid          float64             `json:"amountPaid"`
+	AmountCredited      float64             `json:"amountCredited"`
+	CurrencyCode        string              `json:"currencyCode"`
+	CurrencyRate        float64             `json:"currencyRate"`
+	UpdatedAt           string              `json:"updatedAt"`
+	BrandingThemeID     string              `json:"brandingThemeId"`
+	URL                 string              `json:"url"`
+	SentToContact       bool                `json:"sentToContact"`
+	ExpectedPaymentDate string              `json:"expectedPaymentDate"`
+	PlannedPaymentDate  string              `json:"plannedPaymentDate"`
+	HasAttachments      bool                `json:"hasAttachments"`
+	Payments            []InvoicePayment    `json:"payments"`
+	CreditNotes         []InvoiceAllocation `json:"creditNotes"`
+	Prepayments         []InvoiceAllocation `json:"prepayments"`
+	Overpayments        []InvoiceAllocation `json:"overpayments"`
+	ContactName         string              `json:"contactName,omitempty"`
+	Currency            string              `json:"currency,omitempty"`
 }
 
 type ListInvoicesRequest struct {
-	TenantID string
-	Status   string
-	Contact  string
-	Since    string
-	Page     int
-	Limit    int
+	TenantID   string
+	InvoiceIDs []string
+	Statuses   []string
+	Contact    string
+	Since      string
+	Where      string
+	Order      string
+	Page       int
+	PageSize   int
+}
+
+type InvoiceContact struct {
+	ContactID     string `json:"contactId,omitempty"`
+	Name          string `json:"name,omitempty"`
+	ContactNumber string `json:"contactNumber,omitempty"`
+}
+
+type InvoiceLineItem struct {
+	Description string             `json:"description"`
+	Quantity    float64            `json:"quantity"`
+	UnitAmount  float64            `json:"unitAmount"`
+	ItemCode    string             `json:"itemCode"`
+	AccountCode string             `json:"accountCode"`
+	AccountID   string             `json:"accountId"`
+	TaxType     string             `json:"taxType"`
+	TaxAmount   float64            `json:"taxAmount"`
+	LineAmount  float64            `json:"lineAmount"`
+	LineItemID  string             `json:"lineItemId"`
+	Tracking    []TrackingCategory `json:"tracking"`
+}
+
+type TrackingCategory struct {
+	Name   string `json:"name"`
+	Option string `json:"option"`
+}
+
+type InvoicePayment struct {
+	PaymentID    string  `json:"paymentId"`
+	Date         string  `json:"date"`
+	Amount       float64 `json:"amount"`
+	Reference    string  `json:"reference"`
+	CurrencyRate float64 `json:"currencyRate"`
+	PaymentType  string  `json:"paymentType"`
+	Status       string  `json:"status"`
+}
+
+type InvoiceAllocation struct {
+	AllocationID string  `json:"allocationId"`
+	Type         string  `json:"type"`
+	Date         string  `json:"date"`
+	Amount       float64 `json:"amount"`
+	Status       string  `json:"status"`
 }
 
 type InvoiceLister interface {
@@ -61,19 +130,88 @@ type invoicesResponse struct {
 }
 
 type invoicePayload struct {
-	InvoiceID      string         `json:"InvoiceID"`
-	InvoiceNumber  string         `json:"InvoiceNumber"`
-	Contact        contactPayload `json:"Contact"`
-	Status         string         `json:"Status"`
-	Total          float64        `json:"Total"`
-	AmountDue      float64        `json:"AmountDue"`
-	CurrencyCode   string         `json:"CurrencyCode"`
-	DueDate        string         `json:"DueDate"`
-	UpdatedDateUTC string         `json:"UpdatedDateUTC"`
+	InvoiceID           string              `json:"InvoiceID"`
+	Type                string              `json:"Type"`
+	InvoiceNumber       string              `json:"InvoiceNumber"`
+	Reference           string              `json:"Reference"`
+	Contact             contactPayload      `json:"Contact"`
+	Date                string              `json:"Date"`
+	DueDate             string              `json:"DueDate"`
+	Status              string              `json:"Status"`
+	LineAmountTypes     string              `json:"LineAmountTypes"`
+	LineItems           []lineItemPayload   `json:"LineItems"`
+	SubTotal            float64             `json:"SubTotal"`
+	TotalTax            float64             `json:"TotalTax"`
+	Total               float64             `json:"Total"`
+	TotalDiscount       float64             `json:"TotalDiscount"`
+	AmountDue           float64             `json:"AmountDue"`
+	AmountPaid          float64             `json:"AmountPaid"`
+	AmountCredited      float64             `json:"AmountCredited"`
+	CurrencyCode        string              `json:"CurrencyCode"`
+	CurrencyRate        float64             `json:"CurrencyRate"`
+	UpdatedDateUTC      string              `json:"UpdatedDateUTC"`
+	BrandingThemeID     string              `json:"BrandingThemeID"`
+	URL                 string              `json:"Url"`
+	SentToContact       bool                `json:"SentToContact"`
+	ExpectedPaymentDate string              `json:"ExpectedPaymentDate"`
+	PlannedPaymentDate  string              `json:"PlannedPaymentDate"`
+	HasAttachments      bool                `json:"HasAttachments"`
+	Payments            []paymentPayload    `json:"Payments"`
+	CreditNotes         []creditNotePayload `json:"CreditNotes"`
+	Prepayments         []allocationPayload `json:"Prepayments"`
+	Overpayments        []allocationPayload `json:"Overpayments"`
 }
 
 type contactPayload struct {
-	Name string `json:"Name"`
+	ContactID     string `json:"ContactID"`
+	Name          string `json:"Name"`
+	ContactNumber string `json:"ContactNumber"`
+}
+
+type lineItemPayload struct {
+	Description string            `json:"Description"`
+	Quantity    float64           `json:"Quantity"`
+	UnitAmount  float64           `json:"UnitAmount"`
+	ItemCode    string            `json:"ItemCode"`
+	AccountCode string            `json:"AccountCode"`
+	AccountID   string            `json:"AccountID"`
+	TaxType     string            `json:"TaxType"`
+	TaxAmount   float64           `json:"TaxAmount"`
+	LineAmount  float64           `json:"LineAmount"`
+	LineItemID  string            `json:"LineItemID"`
+	Tracking    []trackingPayload `json:"Tracking"`
+}
+
+type trackingPayload struct {
+	Name   string `json:"Name"`
+	Option string `json:"Option"`
+}
+
+type paymentPayload struct {
+	PaymentID    string  `json:"PaymentID"`
+	Date         string  `json:"Date"`
+	Amount       float64 `json:"Amount"`
+	Reference    string  `json:"Reference"`
+	CurrencyRate float64 `json:"CurrencyRate"`
+	PaymentType  string  `json:"PaymentType"`
+	Status       string  `json:"Status"`
+}
+
+type creditNotePayload struct {
+	CreditNoteID  string  `json:"CreditNoteID"`
+	Type          string  `json:"Type"`
+	Date          string  `json:"Date"`
+	AppliedAmount float64 `json:"AppliedAmount"`
+	Status        string  `json:"Status"`
+}
+
+type allocationPayload struct {
+	PrepaymentID  string  `json:"PrepaymentID"`
+	OverpaymentID string  `json:"OverpaymentID"`
+	Type          string  `json:"Type"`
+	Date          string  `json:"Date"`
+	AppliedAmount float64 `json:"AppliedAmount"`
+	Status        string  `json:"Status"`
 }
 
 type apiErrorPayload struct {
@@ -103,14 +241,26 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 	}
 
 	query := endpoint.Query()
-	if request.Status != "" {
-		query.Set("Statuses", request.Status)
+	if len(request.InvoiceIDs) > 0 {
+		query.Set("IDs", strings.Join(request.InvoiceIDs, ","))
+	}
+	if len(request.Statuses) > 0 {
+		query.Set("Statuses", strings.Join(request.Statuses, ","))
 	}
 	if request.Contact != "" {
-		query.Set("searchTerm", request.Contact)
+		query.Set("SearchTerm", request.Contact)
+	}
+	if request.Where != "" {
+		query.Set("where", request.Where)
+	}
+	if request.Order != "" {
+		query.Set("order", request.Order)
 	}
 	if request.Page > 0 {
 		query.Set("page", strconv.Itoa(request.Page))
+	}
+	if request.PageSize > 0 {
+		query.Set("pageSize", strconv.Itoa(request.PageSize))
 	}
 	endpoint.RawQuery = query.Encode()
 
@@ -157,22 +307,121 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 	invoices := make([]Invoice, 0, len(payload.Invoices))
 	for _, item := range payload.Invoices {
 		invoices = append(invoices, Invoice{
-			InvoiceID:     item.InvoiceID,
-			InvoiceNumber: item.InvoiceNumber,
-			ContactName:   item.Contact.Name,
-			Status:        item.Status,
-			Total:         item.Total,
-			AmountDue:     item.AmountDue,
-			Currency:      item.CurrencyCode,
-			DueDate:       normalizeDate(item.DueDate),
-			UpdatedAt:     normalizeTimestamp(item.UpdatedDateUTC),
+			InvoiceID:           item.InvoiceID,
+			Type:                item.Type,
+			InvoiceNumber:       item.InvoiceNumber,
+			Reference:           item.Reference,
+			Contact:             normalizeContact(item.Contact),
+			Date:                normalizeDate(item.Date),
+			DueDate:             normalizeDate(item.DueDate),
+			Status:              item.Status,
+			LineAmountTypes:     item.LineAmountTypes,
+			LineItems:           normalizeLineItems(item.LineItems),
+			SubTotal:            item.SubTotal,
+			TotalTax:            item.TotalTax,
+			Total:               item.Total,
+			TotalDiscount:       item.TotalDiscount,
+			AmountDue:           item.AmountDue,
+			AmountPaid:          item.AmountPaid,
+			AmountCredited:      item.AmountCredited,
+			CurrencyCode:        item.CurrencyCode,
+			CurrencyRate:        item.CurrencyRate,
+			UpdatedAt:           normalizeTimestamp(item.UpdatedDateUTC),
+			BrandingThemeID:     item.BrandingThemeID,
+			URL:                 item.URL,
+			SentToContact:       item.SentToContact,
+			ExpectedPaymentDate: normalizeDate(item.ExpectedPaymentDate),
+			PlannedPaymentDate:  normalizeDate(item.PlannedPaymentDate),
+			HasAttachments:      item.HasAttachments,
+			Payments:            normalizePayments(item.Payments),
+			CreditNotes:         normalizeCreditNotes(item.CreditNotes),
+			Prepayments:         normalizeAllocations(item.Prepayments),
+			Overpayments:        normalizeAllocations(item.Overpayments),
+			ContactName:         item.Contact.Name,
+			Currency:            item.CurrencyCode,
 		})
 	}
-
-	if request.Limit > 0 && len(invoices) > request.Limit {
-		invoices = invoices[:request.Limit]
-	}
 	return invoices, nil
+}
+
+func normalizeContact(raw contactPayload) InvoiceContact {
+	return InvoiceContact{
+		ContactID:     raw.ContactID,
+		Name:          raw.Name,
+		ContactNumber: raw.ContactNumber,
+	}
+}
+
+func normalizeLineItems(raw []lineItemPayload) []InvoiceLineItem {
+	items := make([]InvoiceLineItem, 0, len(raw))
+	for _, item := range raw {
+		items = append(items, InvoiceLineItem{
+			Description: item.Description,
+			Quantity:    item.Quantity,
+			UnitAmount:  item.UnitAmount,
+			ItemCode:    item.ItemCode,
+			AccountCode: item.AccountCode,
+			AccountID:   item.AccountID,
+			TaxType:     item.TaxType,
+			TaxAmount:   item.TaxAmount,
+			LineAmount:  item.LineAmount,
+			LineItemID:  item.LineItemID,
+			Tracking:    normalizeTracking(item.Tracking),
+		})
+	}
+	return items
+}
+
+func normalizeTracking(raw []trackingPayload) []TrackingCategory {
+	tracking := make([]TrackingCategory, 0, len(raw))
+	for _, item := range raw {
+		tracking = append(tracking, TrackingCategory{Name: item.Name, Option: item.Option})
+	}
+	return tracking
+}
+
+func normalizePayments(raw []paymentPayload) []InvoicePayment {
+	payments := make([]InvoicePayment, 0, len(raw))
+	for _, item := range raw {
+		payments = append(payments, InvoicePayment{
+			PaymentID:    item.PaymentID,
+			Date:         normalizeDate(item.Date),
+			Amount:       item.Amount,
+			Reference:    item.Reference,
+			CurrencyRate: item.CurrencyRate,
+			PaymentType:  item.PaymentType,
+			Status:       item.Status,
+		})
+	}
+	return payments
+}
+
+func normalizeCreditNotes(raw []creditNotePayload) []InvoiceAllocation {
+	allocations := make([]InvoiceAllocation, 0, len(raw))
+	for _, item := range raw {
+		allocations = append(allocations, InvoiceAllocation{
+			AllocationID: item.CreditNoteID,
+			Type:         item.Type,
+			Date:         normalizeDate(item.Date),
+			Amount:       item.AppliedAmount,
+			Status:       item.Status,
+		})
+	}
+	return allocations
+}
+
+func normalizeAllocations(raw []allocationPayload) []InvoiceAllocation {
+	allocations := make([]InvoiceAllocation, 0, len(raw))
+	for _, item := range raw {
+		allocations = append(allocations, InvoiceAllocation{
+			AllocationID: firstNonEmpty(item.PrepaymentID, item.OverpaymentID),
+			Type:         item.Type,
+			Date:         normalizeDate(item.Date),
+			Amount:       item.AppliedAmount,
+			Status:       item.Status,
+		})
+	}
+	return allocations
 }
 
 func normalizeDate(raw string) string {

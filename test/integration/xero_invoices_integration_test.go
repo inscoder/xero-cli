@@ -23,13 +23,25 @@ func TestInvoicesIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 		if r.URL.Path != "/api.xro/2.0/Invoices" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
+		if got := r.URL.Query().Get("Statuses"); got != "AUTHORISED,PAID" {
+			t.Fatalf("expected statuses query, got %q", got)
+		}
+		if got := r.URL.Query().Get("page"); got != "1" {
+			t.Fatalf("expected page query, got %q", got)
+		}
+		if got := r.URL.Query().Get("pageSize"); got != "100" {
+			t.Fatalf("expected pageSize query, got %q", got)
+		}
+		if got := r.URL.Query().Get("order"); got != "UpdatedDateUTC DESC" {
+			t.Fatalf("expected order query, got %q", got)
+		}
 		if got := r.Header.Get("Authorization"); got != "Bearer fresh-token" {
 			t.Fatalf("expected refreshed token, got %q", got)
 		}
 		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
 			t.Fatalf("expected tenant header, got %q", got)
 		}
-		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"1","InvoiceNumber":"INV-1000","Contact":{"Name":"Acme"},"Status":"AUTHORISED","Total":12.34,"AmountDue":4.56,"CurrencyCode":"USD","DueDate":"2026-03-10T00:00:00","UpdatedDateUTC":"2026-03-09T12:30:00Z"}]}`)
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"1","Type":"ACCREC","InvoiceNumber":"INV-1000","Contact":{"ContactID":"contact-1","Name":"Acme"},"Status":"AUTHORISED","Total":12.34,"AmountDue":4.56,"CurrencyCode":"USD","DueDate":"2026-03-10T00:00:00","UpdatedDateUTC":"2026-03-09T12:30:00Z","LineItems":[],"Payments":[],"CreditNotes":[],"Prepayments":[],"Overpayments":[]}]}`)
 	}))
 	defer server.Close()
 
@@ -89,12 +101,15 @@ func TestInvoicesIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	}
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "invoices", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--status", "AUTHORISED,PAID", "--page", "1", "--page-size", "100", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute invoices: %v", err)
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte("INV-1000")) {
 		t.Fatalf("expected invoice output, got %s", stdout.String())
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"contact": {`)) {
+		t.Fatalf("expected rich invoice output, got %s", stdout.String())
 	}
 	refreshedToken, err := tokens.Load()
 	if err != nil {
