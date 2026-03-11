@@ -554,7 +554,11 @@ func (c *Client) ApproveInvoice(ctx context.Context, token auth.TokenSet, reques
 		StatusObserved: strings.EqualFold(invoice.Status, "AUTHORISED"),
 	}
 	if !result.StatusObserved {
-		return InvoiceApprovalResult{}, clierrors.New(clierrors.KindXeroAPI, firstNonEmpty(invoice.Status, "invoice approval was not confirmed by Xero"))
+		message := "invoice approval was not confirmed by Xero"
+		if status := strings.TrimSpace(invoice.Status); status != "" {
+			message = fmt.Sprintf("invoice approval was not confirmed by Xero: expected AUTHORISED, got %s", status)
+		}
+		return InvoiceApprovalResult{}, clierrors.New(clierrors.KindXeroAPI, message)
 	}
 	return result, nil
 }

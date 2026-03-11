@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -311,6 +312,9 @@ func TestApproveInvoiceRejectsUnconfirmedStatus(t *testing.T) {
 	_, err := client.ApproveInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ApproveInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
 	if clierrors.KindOf(err) != clierrors.KindXeroAPI {
 		t.Fatalf("expected Xero API error, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "expected AUTHORISED, got DRAFT") {
+		t.Fatalf("expected informative status mismatch error, got %v", err)
 	}
 }
 
