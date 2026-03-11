@@ -31,6 +31,7 @@ xero invoices --tenant <tenant-id> --json
 
 - `--page-size` maps directly to Xero's `pageSize` query parameter and is only valid when `--page` is present
 - `--where` is passed through directly to Xero, so quote it in your shell
+- `--json` returns a stable success/error envelope; `--quiet` returns the raw success payload or raw error object only
 - `--json` and `--quiet` now return full invoice records rather than a compact invoice summary
 - invoice `url` in list output is not the customer-facing online invoice URL; use `xero invoices online-url` for that workflow
 
@@ -57,6 +58,7 @@ xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json
 - this command approves one invoice by posting `Status: "AUTHORISED"` to Xero's invoices endpoint
 - Xero remains the source of truth for invoice-type, permission, and transition validation errors
 - required Xero scopes are `accounting.transactions` for legacy apps or `accounting.invoices` for granular-scope apps
+- in machine-readable modes, `--json` emits an error envelope and `--quiet` emits the raw error object when the command fails
 - if the network outcome is unclear after dispatch, verify final state with `xero invoices --invoice-id <uuid> --tenant <tenant-id> --json`
 
 ### JSON example

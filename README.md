@@ -49,9 +49,30 @@ Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes 
 ## Output modes
 
 - default: human-readable table output on stdout
-- `--json`: stable JSON envelope on stdout with full invoice records for `xero invoices` and structured output for `xero invoices online-url`
-- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices` and raw mutation/read results for invoice subcommands
+- `--json`: stable JSON envelope on stdout; on failure, emit `{ "ok": false, "error": ... }`
+- `--quiet`: raw payload only on stdout; on failure, emit the raw error object without the outer envelope
 - diagnostics, prompts, and progress always go to stderr
+
+Machine-readable contract examples:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "kind": "XeroApiError",
+    "message": "A validation exception occurred",
+    "exitCode": 14
+  }
+}
+```
+
+```json
+{
+  "kind": "XeroApiError",
+  "message": "A validation exception occurred",
+  "exitCode": 14
+}
+```
 
 `xero invoices online-url` uses Xero's dedicated online-invoice endpoint. It does not reuse the invoice `url` field returned by `xero invoices`, because Xero documents that field as a source-document link inside Xero rather than the customer-facing online invoice URL.
 
