@@ -113,3 +113,47 @@ func TestListInvoicesMapsRateLimitError(t *testing.T) {
 		t.Fatalf("expected rate limit error, got %v", err)
 	}
 }
+
+func TestGetOnlineInvoiceBuildsRequestAndNormalizesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734/OnlineInvoice" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+			t.Fatalf("unexpected authorization header: %q", got)
+		}
+		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
+			t.Fatalf("unexpected tenant header: %q", got)
+		}
+		_, _ = io.WriteString(w, `{"OnlineInvoices":[{"OnlineInvoiceUrl":"https://in.xero.com/abc"}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	result, err := client.GetOnlineInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetOnlineInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err != nil {
+		t.Fatalf("get online invoice: %v", err)
+	}
+	if !result.Available || result.OnlineInvoiceURL != "https://in.xero.com/abc" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.InvoiceID != "220ddca8-3144-4085-9a88-2d72c5133734" {
+		t.Fatalf("unexpected invoice ID: %q", result.InvoiceID)
+	}
+}
+
+func TestGetOnlineInvoiceReturnsUnavailableWhenURLMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"OnlineInvoices":[{}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	result, err := client.GetOnlineInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetOnlineInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err != nil {
+		t.Fatalf("get online invoice: %v", err)
+	}
+	if result.Available || result.OnlineInvoiceURL != "" {
+		t.Fatalf("expected unavailable result, got %+v", result)
+	}
+}

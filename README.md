@@ -1,6 +1,6 @@
 # xero
 
-`xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, and an MVP invoice listing command.
+`xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, invoice listing, and online invoice URL lookup.
 
 ## Commands
 
@@ -10,6 +10,7 @@ xero auth status
 xero auth logout
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
+xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices --tenant <tenant-id> --json
 xero doctor
 ```
@@ -46,9 +47,11 @@ Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes 
 ## Output modes
 
 - default: human-readable table output on stdout
-- `--json`: stable JSON envelope on stdout with full invoice records for `xero invoices`
-- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices`
+- `--json`: stable JSON envelope on stdout with full invoice records for `xero invoices` and structured output for `xero invoices online-url`
+- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices` and raw online-invoice results
 - diagnostics, prompts, and progress always go to stderr
+
+`xero invoices online-url` uses Xero's dedicated online-invoice endpoint. It does not reuse the invoice `url` field returned by `xero invoices`, because Xero documents that field as a source-document link inside Xero rather than the customer-facing online invoice URL.
 
 ## Development
 

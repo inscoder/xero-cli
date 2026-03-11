@@ -44,14 +44,21 @@ func (s *fakeStore) StorageMode() string            { return "file:test" }
 func (s *fakeStore) FallbackPath() string           { return "test" }
 
 type fakeLister struct {
-	request  xeroapi.ListInvoicesRequest
-	invoices []xeroapi.Invoice
-	err      error
+	request       xeroapi.ListInvoicesRequest
+	onlineRequest xeroapi.GetOnlineInvoiceRequest
+	invoices      []xeroapi.Invoice
+	onlineInvoice xeroapi.OnlineInvoiceResult
+	err           error
 }
 
 func (f *fakeLister) ListInvoices(ctx context.Context, token auth.TokenSet, request xeroapi.ListInvoicesRequest) ([]xeroapi.Invoice, error) {
 	f.request = request
 	return f.invoices, f.err
+}
+
+func (f *fakeLister) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.GetOnlineInvoiceRequest) (xeroapi.OnlineInvoiceResult, error) {
+	f.onlineRequest = request
+	return f.onlineInvoice, f.err
 }
 
 func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
@@ -190,6 +197,76 @@ func TestInvoicesCommandFailsWithTypedAuthErrorWhenSessionMissing(t *testing.T) 
 	err := cmd.Execute()
 	if clierrors.KindOf(err) != clierrors.KindAuthRequired {
 		t.Fatalf("expected auth required error, got %v", err)
+	}
+}
+
+func TestInvoicesOnlineURLCommandEmitsStableJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{onlineInvoice: xeroapi.OnlineInvoiceResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", OnlineInvoiceURL: "https://in.xero.com/abc", Available: true}}
+	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "online-url", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices online-url: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"onlineInvoiceUrl": "https://in.xero.com/abc"`) || !strings.Contains(stdout.String(), `"available": true`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+	if lister.onlineRequest.TenantID != "tenant-1" {
+		t.Fatalf("expected default tenant to be used, got %q", lister.onlineRequest.TenantID)
+	}
+	if lister.onlineRequest.InvoiceID != "220ddca8-3144-4085-9a88-2d72c5133734" {
+		t.Fatalf("expected invoice ID to be normalized, got %q", lister.onlineRequest.InvoiceID)
+	}
+}
+
+func TestInvoicesOnlineURLCommandPrintsMissingMessage(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{onlineInvoice: xeroapi.OnlineInvoiceResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", Available: false}}
+	deps, stdout, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "online-url", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices online-url: %v", err)
+	}
+	if got := stdout.String(); got != "No online invoice URL available for invoice 220ddca8-3144-4085-9a88-2d72c5133734\n" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+}
+
+func TestInvoicesOnlineURLCommandRejectsInvalidInvoiceID(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "online-url", "--invoice-id", "not-a-uuid", "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.onlineRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.onlineRequest)
 	}
 }
 
