@@ -13,9 +13,19 @@ type Info struct {
 }
 
 func Current() Info {
+	commit := Commit
+	if commit == "none" {
+		commit = ""
+	}
+
+	date := Date
+	if date == "unknown" {
+		date = ""
+	}
+
 	return Info{
 		Version: Version,
-		Commit:  Commit,
-		Date:    Date,
+		Commit:  commit,
+		Date:    date,
 	}
 }

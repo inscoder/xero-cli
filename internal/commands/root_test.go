@@ -93,3 +93,38 @@ func TestVersionCommandWritesJSON(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 }
+
+func TestVersionCommandOmitsUnsetBuildMetadataInJSON(t *testing.T) {
+	originalCommit := appversion.Commit
+	originalDate := appversion.Date
+	appversion.Commit = "none"
+	appversion.Date = "unknown"
+	t.Cleanup(func() {
+		appversion.Commit = originalCommit
+		appversion.Date = originalDate
+	})
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	deps := Dependencies{
+		Version:    "0.1.0",
+		IO:         IOStreams{Out: stdout, ErrOut: stderr},
+		NewViper:   viper.New,
+		IsTerminal: func(int) bool { return false },
+	}
+
+	cmd := NewRootCommand(deps)
+	cmd.SetArgs([]string{"version", "--json"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute version command: %v", err)
+	}
+
+	expected := "{\n  \"ok\": true,\n  \"data\": {\n    \"version\": \"0.1.0\"\n  },\n  \"summary\": \"Version information\"\n}\n"
+	if stdout.String() != expected {
+		t.Fatalf("unexpected stdout:\n%s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+}
