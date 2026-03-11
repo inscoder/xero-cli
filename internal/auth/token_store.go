@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	appconfig "github.com/cesar/xero-cli/internal/config"
-	clierrors "github.com/cesar/xero-cli/internal/errors"
+	appconfig "github.com/inscoder/xero-cli/internal/config"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
 )
 
 var ErrTokenNotFound = errors.New("token not found")

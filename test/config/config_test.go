@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	appconfig "github.com/cesar/xero-cli/internal/config"
+	appconfig "github.com/inscoder/xero-cli/internal/config"
 	"github.com/spf13/viper"
 )
 

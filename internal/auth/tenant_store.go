@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	appconfig "github.com/cesar/xero-cli/internal/config"
-	clierrors "github.com/cesar/xero-cli/internal/errors"
+	appconfig "github.com/inscoder/xero-cli/internal/config"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
 )
 
 type Tenant struct {

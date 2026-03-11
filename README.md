@@ -2,12 +2,32 @@
 
 `xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, invoice listing, invoice approval, invoice PDF download, and online invoice URL lookup.
 
+## Install
+
+### Go install
+
+```bash
+go install github.com/inscoder/xero-cli/cmd/xero@latest
+xero version
+```
+
+### GitHub Releases
+
+Download the archive for your platform from the GitHub Releases page, unpack it, move `xero` onto your `PATH`, then verify the build:
+
+```bash
+xero version
+```
+
+Release assets are published for macOS, Linux, and Windows on every `v*` tag.
+
 ## Commands
 
 ```bash
 xero auth login
 xero auth status
 xero auth logout
+xero version
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
 xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
@@ -88,3 +108,9 @@ go test ./test/output -run TestWriteJSONEnvelopeContract
 ```
 
 See `docs/auth.md`, `docs/commands/invoices.md`, and `docs/development/testing.md` for more detail.
+
+## Releasing
+
+Create an annotated semver tag such as `v0.1.0` and push it to GitHub. The release workflow will run tests, build archives with GoReleaser, publish the GitHub Release, and attach `checksums.txt`.
+
+See `RELEASING.md` for the full checklist.

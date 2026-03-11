@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cesar/xero-cli/internal/output"
-	"github.com/cesar/xero-cli/internal/xeroapi"
+	"github.com/inscoder/xero-cli/internal/output"
+	"github.com/inscoder/xero-cli/internal/xeroapi"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

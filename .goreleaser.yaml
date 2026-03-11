@@ -1,0 +1,77 @@
+version: 2
+
+project_name: xero
+
+builds:
+  - id: xero
+    main: ./cmd/xero
+    binary: xero
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/inscoder/xero-cli/internal/version.Version={{.Version}}
+      - -X github.com/inscoder/xero-cli/internal/version.Commit={{.Commit}}
+      - -X github.com/inscoder/xero-cli/internal/version.Date={{.Date}}
+
+archives:
+  - id: xero
+    ids:
+      - xero
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - .env.example
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Version }}-next"
+
+changelog:
+  sort: asc
+
+release:
+  draft: false
+  prerelease: auto
+  replace_existing_artifacts: true
+  name_template: "xero v{{.Version}}"
+  header: |
+    Terminal-first Xero CLI release.
+
+    ### Install
+
+    **macOS / Linux**
+    ```sh
+    gh release download v{{.Version}} --pattern 'xero_{{.Version}}_*'
+    tar xzf xero_{{.Version}}_darwin_arm64.tar.gz
+    chmod +x xero
+    sudo mv xero /usr/local/bin/
+    xero version
+    ```
+
+    **Windows (PowerShell)**
+    ```powershell
+    gh release download v{{.Version}} --pattern 'xero_{{.Version}}_windows_*'
+    Expand-Archive .\xero_{{.Version}}_windows_amd64.zip -DestinationPath .\xero
+    .\xero\xero.exe version
+    ```
+
+    Pick the archive that matches your platform and architecture, then verify it against `checksums.txt`.
