@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -204,6 +205,112 @@ func TestInvoicesOnlineURLIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"onlineInvoiceUrl": "https://in.xero.com/abc"`)) {
 		t.Fatalf("expected online invoice output, got %s", stdout.String())
+	}
+	refreshedToken, err := tokens.Load()
+	if err != nil {
+		t.Fatalf("load refreshed token: %v", err)
+	}
+	if refreshedToken.AccessToken != "fresh-token" {
+		t.Fatalf("expected refreshed token to persist, got %q", refreshedToken.AccessToken)
+	}
+	updatedSession, err := session.Load()
+	if err != nil {
+		t.Fatalf("load updated session: %v", err)
+	}
+	if updatedSession.LastRefreshAt.IsZero() {
+		t.Fatal("expected refresh metadata to be recorded")
+	}
+}
+
+func TestInvoicesPDFIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer fresh-token" {
+			t.Fatalf("expected refreshed token, got %q", got)
+		}
+		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
+			t.Fatalf("expected tenant header, got %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/pdf" {
+			t.Fatalf("expected pdf accept header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.7\ninvoice\n")
+	}))
+	defer server.Close()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	v := viper.New()
+	appconfig.ConfigureViper(v)
+	v.Set("config", configPath)
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	settings, err := manager.Load(false, "test")
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
+		t.Fatalf("update tenant: %v", err)
+	}
+
+	tokens := auth.NewTokenStore(settings)
+	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth"}
+	if err := tokens.Save(oldToken); err != nil {
+		t.Fatalf("save old token: %v", err)
+	}
+	session := auth.NewSessionStore(settings.SessionFilePath)
+	if err := session.Save(auth.SessionMetadata{Authenticated: true, AuthMode: "browser_oauth", KnownTenants: []auth.Tenant{{ID: "tenant-1", Name: "Acme"}}, GeneratedAt: oldToken.GeneratedAt}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	deps := commands.Dependencies{
+		Version: "test",
+		IO:      commands.IOStreams{In: bytes.NewBuffer(nil), Out: stdout, ErrOut: stderr},
+		NewViper: func() *viper.Viper {
+			return viper.New()
+		},
+		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
+		NewSessionStore: auth.NewSessionStore,
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+			return xeroapi.NewClient(settings, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+		},
+		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) commands.Authenticator {
+			return fakeIntegrationAuth{store: store}
+		},
+		IsTerminal:     func(int) bool { return false },
+		LookPath:       func(string) error { return nil },
+		Now:            func() time.Time { return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC) },
+		ContextFactory: func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) },
+		PostRefreshState: func(rt *commands.Runtime, token auth.TokenSet, refreshed bool) error {
+			if !refreshed {
+				return nil
+			}
+			return rt.Tenants.UpdateRefreshState(token, rt.SessionMeta.KnownTenants, rt.Tokens.StorageMode(), rt.Tokens.FallbackPath())
+		},
+	}
+
+	outputPath := filepath.Join(tempDir, "invoice.pdf")
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", outputPath, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"savedTo": "`+outputPath+`"`)) {
+		t.Fatalf("expected invoice pdf output, got %s", stdout.String())
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read invoice pdf: %v", err)
+	}
+	if string(content) != "%PDF-1.7\ninvoice\n" {
+		t.Fatalf("unexpected pdf content: %q", string(content))
 	}
 	refreshedToken, err := tokens.Load()
 	if err != nil {

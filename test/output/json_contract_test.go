@@ -95,3 +95,46 @@ func TestWriteJSONQuietEmitsRawOnlineInvoiceResult(t *testing.T) {
 		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
 	}
 }
+
+func TestWriteJSONEnvelopeContractForInvoicePDFResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.InvoicePDFResult{
+		InvoiceID:   "220ddca8-3144-4085-9a88-2d72c5133734",
+		ContentType: "application/pdf",
+		Bytes:       48213,
+		Output:      "file",
+		SavedTo:     "invoice.pdf",
+		Streamed:    false,
+	}
+	breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf --tenant tenant-1 --json"}}
+
+	if err := output.WriteJSON(&buffer, result, "invoice PDF saved", breadcrumbs, false); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+
+	expected := "{\n  \"ok\": true,\n  \"data\": {\n    \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n    \"contentType\": \"application/pdf\",\n    \"bytes\": 48213,\n    \"output\": \"file\",\n    \"savedTo\": \"invoice.pdf\",\n    \"streamed\": false\n  },\n  \"summary\": \"invoice PDF saved\",\n  \"breadcrumbs\": [\n    {\n      \"action\": \"show\",\n      \"cmd\": \"xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf --tenant tenant-1 --json\"\n    }\n  ]\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteJSONQuietEmitsRawInvoicePDFResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.InvoicePDFResult{
+		InvoiceID:   "220ddca8-3144-4085-9a88-2d72c5133734",
+		ContentType: "application/pdf",
+		Bytes:       48213,
+		Output:      "file",
+		SavedTo:     "invoice.pdf",
+		Streamed:    false,
+	}
+
+	if err := output.WriteJSON(&buffer, result, "invoice PDF saved", nil, true); err != nil {
+		t.Fatalf("write quiet json: %v", err)
+	}
+
+	expected := "{\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"contentType\": \"application/pdf\",\n  \"bytes\": 48213,\n  \"output\": \"file\",\n  \"savedTo\": \"invoice.pdf\",\n  \"streamed\": false\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
+	}
+}

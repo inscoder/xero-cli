@@ -3,7 +3,9 @@ package commands_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/cesar/xero-cli/internal/commands"
 	appconfig "github.com/cesar/xero-cli/internal/config"
 	clierrors "github.com/cesar/xero-cli/internal/errors"
+	"github.com/cesar/xero-cli/internal/output"
 	"github.com/cesar/xero-cli/internal/xeroapi"
 	"github.com/spf13/viper"
 )
@@ -46,8 +49,11 @@ func (s *fakeStore) FallbackPath() string           { return "test" }
 type fakeLister struct {
 	request       xeroapi.ListInvoicesRequest
 	onlineRequest xeroapi.GetOnlineInvoiceRequest
+	pdfRequest    xeroapi.GetInvoicePDFRequest
 	invoices      []xeroapi.Invoice
 	onlineInvoice xeroapi.OnlineInvoiceResult
+	pdfResult     xeroapi.InvoicePDFResult
+	pdfContent    []byte
 	err           error
 }
 
@@ -59,6 +65,25 @@ func (f *fakeLister) ListInvoices(ctx context.Context, token auth.TokenSet, requ
 func (f *fakeLister) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.GetOnlineInvoiceRequest) (xeroapi.OnlineInvoiceResult, error) {
 	f.onlineRequest = request
 	return f.onlineInvoice, f.err
+}
+
+func (f *fakeLister) GetInvoicePDF(ctx context.Context, token auth.TokenSet, request xeroapi.GetInvoicePDFRequest, writer io.Writer) (xeroapi.InvoicePDFResult, error) {
+	f.pdfRequest = request
+	if f.err != nil {
+		return xeroapi.InvoicePDFResult{}, f.err
+	}
+	if _, err := writer.Write(f.pdfContent); err != nil {
+		return xeroapi.InvoicePDFResult{}, err
+	}
+	result := f.pdfResult
+	result.InvoiceID = request.InvoiceID
+	if result.ContentType == "" {
+		result.ContentType = "application/pdf"
+	}
+	if result.Bytes == 0 {
+		result.Bytes = int64(len(f.pdfContent))
+	}
+	return result, nil
 }
 
 func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
@@ -288,6 +313,182 @@ func TestInvoicesOnlineURLCommandRequiresInvoiceIDFlag(t *testing.T) {
 	}
 	if lister.onlineRequest.InvoiceID != "" {
 		t.Fatalf("expected client not to be called, got request %+v", lister.onlineRequest)
+	}
+}
+
+func TestInvoicesPDFCommandEmitsStableJSONForFileOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF-1.7\nhello\n")}
+	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
+
+	outputPath := filepath.Join(tempDir, "invoice.pdf")
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", outputPath, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"savedTo": `+"\""+outputPath+"\"") || !strings.Contains(stdout.String(), `"contentType": "application/pdf"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+	if lister.pdfRequest.TenantID != "tenant-1" {
+		t.Fatalf("expected default tenant to be used, got %q", lister.pdfRequest.TenantID)
+	}
+	content, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read output file: %v", err)
+	}
+	if string(content) != "%PDF-1.7\nhello\n" {
+		t.Fatalf("unexpected output content: %q", string(content))
+	}
+	if _, err := os.Stat(outputPath + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("expected temp file cleanup, got err=%v", err)
+	}
+}
+
+func TestInvoicesPDFCommandPrintsSavedMessage(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF")}
+	deps, stdout, _ := testDependencies(configPath, store, lister, false)
+
+	outputPath := filepath.Join(tempDir, "invoice.pdf")
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", outputPath})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+	if got := stdout.String(); got != "Saved invoice PDF to "+outputPath+" (4 bytes)\n" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+}
+
+func TestInvoicesPDFCommandStreamsToStdout(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF-raw")}
+	deps, stdout, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+	if got := stdout.String(); got != "%PDF-raw" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+}
+
+func TestInvoicesPDFCommandRejectsJSONWithStdoutOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "--json", "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", "-"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.pdfRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.pdfRequest)
+	}
+}
+
+func TestInvoicesPDFCommandRejectsInteractiveStdoutOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, true)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", "-"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.pdfRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.pdfRequest)
+	}
+}
+
+func TestInvoicesPDFCommandQuotesBreadcrumbOutputPath(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF")}
+	deps, stdout, _ := testDependencies(configPath, store, lister, false)
+
+	outputPath := filepath.Join(tempDir, "my invoice.pdf")
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", outputPath, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+
+	var envelope output.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if len(envelope.Breadcrumbs) != 1 {
+		t.Fatalf("expected one breadcrumb, got %+v", envelope.Breadcrumbs)
+	}
+	expected := `xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output ` + `"` + outputPath + `" --tenant tenant-1 --json`
+	if envelope.Breadcrumbs[0].Cmd != expected {
+		t.Fatalf("unexpected breadcrumb: %q", envelope.Breadcrumbs[0].Cmd)
+	}
+}
+
+func TestInvoicesPDFCommandClassifiesOutputPathErrorsAsInternal(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	blocker := filepath.Join(tempDir, "blocked")
+	if err := os.WriteFile(blocker, []byte("nope"), 0o600); err != nil {
+		t.Fatalf("write blocker file: %v", err)
+	}
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF")}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", filepath.Join(blocker, "invoice.pdf")})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindInternal {
+		t.Fatalf("expected internal error, got %v", err)
+	}
+	if lister.pdfRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got %+v", lister.pdfRequest)
 	}
 }
 

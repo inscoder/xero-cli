@@ -1,7 +1,9 @@
 package xeroapi_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -156,4 +158,91 @@ func TestGetOnlineInvoiceReturnsUnavailableWhenURLMissing(t *testing.T) {
 	if result.Available || result.OnlineInvoiceURL != "" {
 		t.Fatalf("expected unavailable result, got %+v", result)
 	}
+}
+
+func TestGetInvoicePDFBuildsRequestAndStreamsResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+			t.Fatalf("unexpected authorization header: %q", got)
+		}
+		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
+			t.Fatalf("unexpected tenant header: %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/pdf" {
+			t.Fatalf("unexpected accept header: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.7\nhello\n")
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	var buffer bytes.Buffer
+	result, err := client.GetInvoicePDF(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoicePDFRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"}, &buffer)
+	if err != nil {
+		t.Fatalf("get invoice pdf: %v", err)
+	}
+	if got := buffer.String(); got != "%PDF-1.7\nhello\n" {
+		t.Fatalf("unexpected streamed bytes: %q", got)
+	}
+	if result.InvoiceID != "220ddca8-3144-4085-9a88-2d72c5133734" || result.ContentType != "application/pdf" || result.Bytes != int64(buffer.Len()) {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestGetInvoicePDFRejectsNonPDFContentType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"Message":"not a pdf"}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.GetInvoicePDF(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoicePDFRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"}, io.Discard)
+	if clierrors.KindOf(err) != clierrors.KindXeroRequest {
+		t.Fatalf("expected request error, got %v", err)
+	}
+}
+
+func TestGetInvoicePDFMapsRateLimitError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"Message":"slow down"}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.GetInvoicePDF(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoicePDFRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"}, io.Discard)
+	if clierrors.KindOf(err) != clierrors.KindRateLimit {
+		t.Fatalf("expected rate limit error, got %v", err)
+	}
+}
+
+func TestGetInvoicePDFClassifiesWriterErrorsAsInternal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.7\nhello\n")
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	boom := errors.New("writer failed")
+	_, err := client.GetInvoicePDF(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoicePDFRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"}, errWriter{err: boom})
+	if clierrors.KindOf(err) != clierrors.KindInternal {
+		t.Fatalf("expected internal error, got %v", err)
+	}
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped writer error, got %v", err)
+	}
+}
+
+type errWriter struct {
+	err error
+}
+
+func (w errWriter) Write(p []byte) (int, error) {
+	return 0, w.err
 }
