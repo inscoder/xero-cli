@@ -50,6 +50,11 @@ func WriteOnlineInvoiceURL(writer io.Writer, result xeroapi.OnlineInvoiceResult)
 	return err
 }
 
+func WriteInvoicePDFSaved(writer io.Writer, result xeroapi.InvoicePDFResult) error {
+	_, err := fmt.Fprintf(writer, "Saved invoice PDF to %s (%d bytes)\n", result.SavedTo, result.Bytes)
+	return err
+}
+
 func WriteStatus(writer io.Writer, authenticated bool, session auth.SessionMetadata, defaultTenantID, defaultTenantName string, refreshNeeded bool) error {
 	status := "Not authenticated"
 	if authenticated {

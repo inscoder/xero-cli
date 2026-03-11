@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -71,10 +72,24 @@ type GetOnlineInvoiceRequest struct {
 	InvoiceID string
 }
 
+type GetInvoicePDFRequest struct {
+	TenantID  string
+	InvoiceID string
+}
+
 type OnlineInvoiceResult struct {
 	InvoiceID        string `json:"invoiceId"`
 	OnlineInvoiceURL string `json:"onlineInvoiceUrl,omitempty"`
 	Available        bool   `json:"available"`
+}
+
+type InvoicePDFResult struct {
+	InvoiceID   string `json:"invoiceId"`
+	ContentType string `json:"contentType"`
+	Bytes       int64  `json:"bytes"`
+	Output      string `json:"output"`
+	SavedTo     string `json:"savedTo,omitempty"`
+	Streamed    bool   `json:"streamed"`
 }
 
 type InvoiceContact struct {
@@ -123,6 +138,7 @@ type InvoiceAllocation struct {
 type InvoiceLister interface {
 	ListInvoices(context.Context, auth.TokenSet, ListInvoicesRequest) ([]Invoice, error)
 	GetOnlineInvoice(context.Context, auth.TokenSet, GetOnlineInvoiceRequest) (OnlineInvoiceResult, error)
+	GetInvoicePDF(context.Context, auth.TokenSet, GetInvoicePDFRequest, io.Writer) (InvoicePDFResult, error)
 }
 
 type ClientOptions struct {
@@ -389,6 +405,47 @@ func (c *Client) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, requ
 		break
 	}
 	return result, nil
+}
+
+func (c *Client) GetInvoicePDF(ctx context.Context, token auth.TokenSet, request GetInvoicePDFRequest, writer io.Writer) (InvoicePDFResult, error) {
+	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices/" + url.PathEscape(request.InvoiceID) + "/pdf")
+	if err != nil {
+		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero invoice PDF URL", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero invoice PDF request", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/pdf")
+	req.Header.Set("Xero-tenant-id", request.TenantID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindNetwork, "send Xero invoice PDF request", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return InvoicePDFResult{}, decodeAPIError(resp)
+	}
+
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	if !strings.HasPrefix(strings.ToLower(contentType), "application/pdf") {
+		return InvoicePDFResult{}, clierrors.New(clierrors.KindXeroRequest, fmt.Sprintf("unexpected invoice PDF content type %q", contentType))
+	}
+
+	bytesWritten, err := io.Copy(writer, resp.Body)
+	if err != nil {
+		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindNetwork, "stream Xero invoice PDF response", err)
+	}
+
+	return InvoicePDFResult{
+		InvoiceID:   request.InvoiceID,
+		ContentType: contentType,
+		Bytes:       bytesWritten,
+	}, nil
 }
 
 func decodeAPIError(resp *http.Response) error {
