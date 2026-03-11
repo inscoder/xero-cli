@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -60,7 +61,7 @@ func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
 	prepareSession(t, filepath.Join(tempDir, "session.json"))
 
 	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
-	lister := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: "1", InvoiceNumber: "INV-0001", ContactName: "Acme Ltd", Status: "AUTHORISED"}}}
+	lister := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: "1", InvoiceNumber: "INV-0001", ContactName: "Acme Ltd", Contact: xeroapi.InvoiceContact{Name: "Acme Ltd"}, Status: "AUTHORISED", CurrencyCode: "USD", Currency: "USD", LineItems: []xeroapi.InvoiceLineItem{}, Payments: []xeroapi.InvoicePayment{}, CreditNotes: []xeroapi.InvoiceAllocation{}, Prepayments: []xeroapi.InvoiceAllocation{}, Overpayments: []xeroapi.InvoiceAllocation{}}}}
 	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
 
 	cmd := commands.NewRootCommand(deps)
@@ -71,11 +72,106 @@ func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
 	if stderr.String() != "" {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "\"invoiceNumber\": \"INV-0001\"") || !strings.Contains(stdout.String(), "\"summary\": \"1 invoice\"") {
+	if !strings.Contains(stdout.String(), "\"invoiceNumber\": \"INV-0001\"") || !strings.Contains(stdout.String(), "\"summary\": \"1 invoice\"") || !strings.Contains(stdout.String(), "\"contact\": {") {
 		t.Fatalf("unexpected stdout: %s", stdout.String())
 	}
 	if lister.request.TenantID != "tenant-1" {
 		t.Fatalf("expected default tenant to be used, got %q", lister.request.TenantID)
+	}
+}
+
+func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: "1", InvoiceNumber: "INV-0001", LineItems: []xeroapi.InvoiceLineItem{}, Payments: []xeroapi.InvoicePayment{}, CreditNotes: []xeroapi.InvoiceAllocation{}, Prepayments: []xeroapi.InvoiceAllocation{}, Overpayments: []xeroapi.InvoiceAllocation{}}}}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734,88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", "--status", "authorised,paid", "--where", `Type=="ACCPAY" AND AmountDue>=5000`, "--order", "Date asc", "--page", "2", "--page-size", "50", "--since", "2026-03-01", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices with filters: %v", err)
+	}
+
+	expectedIDs := []string{"220ddca8-3144-4085-9a88-2d72c5133734", "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0"}
+	if !reflect.DeepEqual(lister.request.InvoiceIDs, expectedIDs) {
+		t.Fatalf("unexpected invoice IDs: %#v", lister.request.InvoiceIDs)
+	}
+	expectedStatuses := []string{"AUTHORISED", "PAID"}
+	if !reflect.DeepEqual(lister.request.Statuses, expectedStatuses) {
+		t.Fatalf("unexpected statuses: %#v", lister.request.Statuses)
+	}
+	if lister.request.Where != `Type=="ACCPAY" AND AmountDue>=5000` {
+		t.Fatalf("unexpected where: %q", lister.request.Where)
+	}
+	if lister.request.Order != "Date ASC" {
+		t.Fatalf("unexpected order: %q", lister.request.Order)
+	}
+	if lister.request.Page != 2 || lister.request.PageSize != 50 {
+		t.Fatalf("unexpected paging: page=%d pageSize=%d", lister.request.Page, lister.request.PageSize)
+	}
+	if lister.request.Since != "2026-03-01" {
+		t.Fatalf("unexpected passthrough fields: %+v", lister.request)
+	}
+}
+
+func TestInvoicesCommandRejectsPageSizeWithoutPage(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--page-size", "100", "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.request.PageSize != 0 {
+		t.Fatalf("expected client not to be called, got request %+v", lister.request)
+	}
+}
+
+func TestInvoicesCommandRejectsUnknownStatus(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--status", "banana", "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestInvoicesCommandRejectsRemovedContactFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--contact", "Acme", "--json"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --contact") {
+		t.Fatalf("expected unknown flag error for removed --contact, got %v", err)
 	}
 }
 

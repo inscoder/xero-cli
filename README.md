@@ -8,7 +8,8 @@
 xero auth login
 xero auth status
 xero auth logout
-xero invoices --status AUTHORISED --limit 20
+xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
+xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
 xero invoices --tenant <tenant-id> --json
 xero doctor
 ```
@@ -45,8 +46,8 @@ Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes 
 ## Output modes
 
 - default: human-readable table output on stdout
-- `--json`: stable JSON envelope on stdout
-- `--quiet`: raw `data` payload only on stdout
+- `--json`: stable JSON envelope on stdout with full invoice records for `xero invoices`
+- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices`
 - diagnostics, prompts, and progress always go to stderr
 
 ## Development
