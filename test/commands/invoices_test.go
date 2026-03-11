@@ -270,6 +270,27 @@ func TestInvoicesOnlineURLCommandRejectsInvalidInvoiceID(t *testing.T) {
 	}
 }
 
+func TestInvoicesOnlineURLCommandRequiresInvoiceIDFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "online-url", "--json"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `required flag(s) "invoice-id" not set`) {
+		t.Fatalf("expected required-flag error, got %v", err)
+	}
+	if lister.onlineRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.onlineRequest)
+	}
+}
+
 func testDependencies(configPath string, store auth.TokenStore, lister xeroapi.InvoiceLister, interactive bool) (commands.Dependencies, *bytes.Buffer, *bytes.Buffer) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

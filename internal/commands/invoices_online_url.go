@@ -70,5 +70,6 @@ func newInvoicesOnlineURLCommand(deps Dependencies, v *viper.Viper) *cobra.Comma
 	}
 
 	cmd.Flags().StringVar(&request.InvoiceID, "invoice-id", "", "invoice ID")
+	_ = cmd.MarkFlagRequired("invoice-id")
 	return cmd
 }
