@@ -3,6 +3,7 @@ package xeroapi_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -236,6 +237,93 @@ func TestGetInvoicePDFClassifiesWriterErrorsAsInternal(t *testing.T) {
 	}
 	if !errors.Is(err, boom) {
 		t.Fatalf("expected wrapped writer error, got %v", err)
+	}
+}
+
+func TestApproveInvoiceBuildsRequestAndNormalizesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api.xro/2.0/Invoices" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+			t.Fatalf("unexpected authorization header: %q", got)
+		}
+		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
+			t.Fatalf("unexpected tenant header: %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/json" {
+			t.Fatalf("unexpected accept header: %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/json" {
+			t.Fatalf("unexpected content-type header: %q", got)
+		}
+		var payload map[string][]map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		expected := []map[string]string{{"InvoiceID": "220ddca8-3144-4085-9a88-2d72c5133734", "Status": "AUTHORISED"}}
+		if got := payload["Invoices"]; len(got) != 1 || got[0]["InvoiceID"] != expected[0]["InvoiceID"] || got[0]["Status"] != expected[0]["Status"] {
+			t.Fatalf("unexpected request payload: %+v", payload)
+		}
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"220ddca8-3144-4085-9a88-2d72c5133734","Type":"ACCREC","InvoiceNumber":"INV-0001","Status":"AUTHORISED","UpdatedDateUTC":"/Date(1773318600000+0000)/"}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	result, err := client.ApproveInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ApproveInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err != nil {
+		t.Fatalf("approve invoice: %v", err)
+	}
+	if result.InvoiceID != "220ddca8-3144-4085-9a88-2d72c5133734" || result.TenantID != "tenant-1" || result.InvoiceNumber != "INV-0001" || result.Type != "ACCREC" || result.Status != "AUTHORISED" || !result.StatusObserved {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if result.UpdatedAt != time.UnixMilli(1773318600000).UTC().Format(time.RFC3339) {
+		t.Fatalf("unexpected updatedAt normalization: %q", result.UpdatedAt)
+	}
+}
+
+func TestApproveInvoiceAllowsSparseSuccessResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"220ddca8-3144-4085-9a88-2d72c5133734","Status":"AUTHORISED"}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	result, err := client.ApproveInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ApproveInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err != nil {
+		t.Fatalf("approve invoice: %v", err)
+	}
+	if result.InvoiceNumber != "" || result.Type != "" || result.UpdatedAt != "" || !result.StatusObserved {
+		t.Fatalf("unexpected sparse result: %+v", result)
+	}
+}
+
+func TestApproveInvoiceRejectsUnconfirmedStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"220ddca8-3144-4085-9a88-2d72c5133734","Status":"DRAFT"}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ApproveInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ApproveInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if clierrors.KindOf(err) != clierrors.KindXeroAPI {
+		t.Fatalf("expected Xero API error, got %v", err)
+	}
+}
+
+func TestApproveInvoiceRejectsEmptyResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"Invoices":[]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ApproveInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ApproveInvoiceRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if clierrors.KindOf(err) != clierrors.KindXeroRequest {
+		t.Fatalf("expected request error, got %v", err)
 	}
 }
 

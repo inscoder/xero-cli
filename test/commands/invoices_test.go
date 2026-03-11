@@ -50,9 +50,11 @@ type fakeLister struct {
 	request       xeroapi.ListInvoicesRequest
 	onlineRequest xeroapi.GetOnlineInvoiceRequest
 	pdfRequest    xeroapi.GetInvoicePDFRequest
+	approveReq    xeroapi.ApproveInvoiceRequest
 	invoices      []xeroapi.Invoice
 	onlineInvoice xeroapi.OnlineInvoiceResult
 	pdfResult     xeroapi.InvoicePDFResult
+	approveResult xeroapi.InvoiceApprovalResult
 	pdfContent    []byte
 	err           error
 }
@@ -84,6 +86,11 @@ func (f *fakeLister) GetInvoicePDF(ctx context.Context, token auth.TokenSet, req
 		result.Bytes = int64(len(f.pdfContent))
 	}
 	return result, nil
+}
+
+func (f *fakeLister) ApproveInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.ApproveInvoiceRequest) (xeroapi.InvoiceApprovalResult, error) {
+	f.approveReq = request
+	return f.approveResult, f.err
 }
 
 func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
@@ -489,6 +496,139 @@ func TestInvoicesPDFCommandClassifiesOutputPathErrorsAsInternal(t *testing.T) {
 	}
 	if lister.pdfRequest.InvoiceID != "" {
 		t.Fatalf("expected client not to be called, got %+v", lister.pdfRequest)
+	}
+}
+
+func TestInvoicesApproveCommandEmitsStableJSON(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{approveResult: xeroapi.InvoiceApprovalResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", TenantID: "tenant-1", InvoiceNumber: "INV-0001", Type: "ACCREC", Status: "AUTHORISED", UpdatedAt: "2026-03-11T12:30:00Z", StatusObserved: true}}
+	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220DDCA8-3144-4085-9A88-2D72C5133734", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices approve: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"summary": "invoice approved"`) || !strings.Contains(stdout.String(), `"invoiceNumber": "INV-0001"`) || !strings.Contains(stdout.String(), `"tenantId": "tenant-1"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+	if lister.approveReq.TenantID != "tenant-1" {
+		t.Fatalf("expected default tenant to be used, got %q", lister.approveReq.TenantID)
+	}
+	if lister.approveReq.InvoiceID != "220ddca8-3144-4085-9a88-2d72c5133734" {
+		t.Fatalf("expected normalized invoice ID, got %q", lister.approveReq.InvoiceID)
+	}
+}
+
+func TestInvoicesApproveCommandPrintsSuccessLine(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{approveResult: xeroapi.InvoiceApprovalResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", TenantID: "tenant-1", InvoiceNumber: "INV-0001", Status: "AUTHORISED", StatusObserved: true}}
+	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices approve: %v", err)
+	}
+	if got := stdout.String(); got != "Approved invoice INV-0001 (220ddca8-3144-4085-9a88-2d72c5133734) for tenant tenant-1 (AUTHORISED)\n" {
+		t.Fatalf("unexpected stdout: %q", got)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+}
+
+func TestInvoicesApproveCommandRejectsInvalidInvoiceID(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "not-a-uuid", "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.approveReq.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.approveReq)
+	}
+}
+
+func TestInvoicesApproveCommandRequiresInvoiceIDFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--json"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `required flag(s) "invoice-id" not set`) {
+		t.Fatalf("expected required-flag error, got %v", err)
+	}
+}
+
+func TestInvoicesApproveCommandUsesTenantOverride(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	sessionPath := filepath.Join(tempDir, "session.json")
+	store := auth.NewSessionStore(sessionPath)
+	if err := store.Save(auth.SessionMetadata{Authenticated: true, AuthMode: "browser_oauth", KnownTenants: []auth.Tenant{{ID: "tenant-1", Name: "Acme"}, {ID: "tenant-2", Name: "Other"}}}); err != nil {
+		t.Fatalf("save session: %v", err)
+	}
+
+	tokenStore := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{approveResult: xeroapi.InvoiceApprovalResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", TenantID: "tenant-2", Status: "AUTHORISED", StatusObserved: true}}
+	deps, _, _ := testDependencies(configPath, tokenStore, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--tenant", "tenant-2", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices approve with tenant override: %v", err)
+	}
+	if lister.approveReq.TenantID != "tenant-2" {
+		t.Fatalf("expected tenant override to be used, got %q", lister.approveReq.TenantID)
+	}
+}
+
+func TestInvoicesApproveCommandPropagatesTypedUpstreamError(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{err: clierrors.New(clierrors.KindXeroAPI, "invoice cannot be authorised")}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindXeroAPI {
+		t.Fatalf("expected Xero API error, got %v", err)
 	}
 }
 

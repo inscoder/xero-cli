@@ -1,6 +1,6 @@
 # xero
 
-`xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, invoice listing, invoice PDF download, and online invoice URL lookup.
+`xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, invoice listing, invoice approval, invoice PDF download, and online invoice URL lookup.
 
 ## Commands
 
@@ -10,6 +10,7 @@ xero auth status
 xero auth logout
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
+xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices --tenant <tenant-id> --json
@@ -49,10 +50,12 @@ Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes 
 
 - default: human-readable table output on stdout
 - `--json`: stable JSON envelope on stdout with full invoice records for `xero invoices` and structured output for `xero invoices online-url`
-- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices` and raw online-invoice results
+- `--quiet`: raw `data` payload only on stdout, including full invoice records for `xero invoices` and raw mutation/read results for invoice subcommands
 - diagnostics, prompts, and progress always go to stderr
 
 `xero invoices online-url` uses Xero's dedicated online-invoice endpoint. It does not reuse the invoice `url` field returned by `xero invoices`, because Xero documents that field as a source-document link inside Xero rather than the customer-facing online invoice URL.
+
+`xero invoices approve` is the first invoice write command. It approves exactly one invoice by setting its status to `AUTHORISED`, includes the resolved tenant in structured output, and is intended for explicit single-resource use. Required Xero scopes are `accounting.transactions` for legacy apps or `accounting.invoices` for granular-scope apps.
 
 `xero invoices pdf` is the CLI's binary download path. It requires an explicit `--output` destination, returns saved-file metadata for `--json` and `--quiet`, and only streams raw PDF bytes when `--output -` is used in a non-interactive context.
 

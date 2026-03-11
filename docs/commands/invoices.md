@@ -6,6 +6,7 @@
 xero auth login
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
+xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices --where 'Type=="ACCPAY" AND AmountDue>=5000'
@@ -32,6 +33,55 @@ xero invoices --tenant <tenant-id> --json
 - `--where` is passed through directly to Xero, so quote it in your shell
 - `--json` and `--quiet` now return full invoice records rather than a compact invoice summary
 - invoice `url` in list output is not the customer-facing online invoice URL; use `xero invoices online-url` for that workflow
+
+## `xero invoices approve`
+
+### Usage
+
+```bash
+xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
+xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant <tenant-id>
+xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json
+```
+
+### Flags
+
+- `--invoice-id <uuid>`: required invoice ID to approve
+- `--tenant <tenant-id>`: override the saved default tenant; use this explicitly for non-default organizations
+- `--json`: emit the JSON envelope
+- `--quiet`: emit raw `data` only
+- `--no-browser`: fail instead of opening a browser when auth is required
+
+### Notes
+
+- this command approves one invoice by posting `Status: "AUTHORISED"` to Xero's invoices endpoint
+- Xero remains the source of truth for invoice-type, permission, and transition validation errors
+- required Xero scopes are `accounting.transactions` for legacy apps or `accounting.invoices` for granular-scope apps
+- if the network outcome is unclear after dispatch, verify final state with `xero invoices --invoice-id <uuid> --tenant <tenant-id> --json`
+
+### JSON example
+
+```json
+{
+  "ok": true,
+  "data": {
+    "invoiceId": "220ddca8-3144-4085-9a88-2d72c5133734",
+    "tenantId": "tenant-1",
+    "invoiceNumber": "INV-1000",
+    "type": "ACCREC",
+    "status": "AUTHORISED",
+    "updatedAt": "2026-03-11T12:30:00Z",
+    "statusObserved": true
+  },
+  "summary": "invoice approved",
+  "breadcrumbs": [
+    {
+      "action": "show",
+      "cmd": "xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant tenant-1 --json"
+    }
+  ]
+}
+```
 
 ## `xero invoices pdf`
 

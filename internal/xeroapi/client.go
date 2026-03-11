@@ -1,6 +1,7 @@
 package xeroapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -78,6 +79,11 @@ type GetInvoicePDFRequest struct {
 	InvoiceID string
 }
 
+type ApproveInvoiceRequest struct {
+	TenantID  string
+	InvoiceID string
+}
+
 type OnlineInvoiceResult struct {
 	InvoiceID        string `json:"invoiceId"`
 	OnlineInvoiceURL string `json:"onlineInvoiceUrl,omitempty"`
@@ -91,6 +97,16 @@ type InvoicePDFResult struct {
 	Output      string `json:"output"`
 	SavedTo     string `json:"savedTo,omitempty"`
 	Streamed    bool   `json:"streamed"`
+}
+
+type InvoiceApprovalResult struct {
+	InvoiceID      string `json:"invoiceId"`
+	TenantID       string `json:"tenantId"`
+	InvoiceNumber  string `json:"invoiceNumber,omitempty"`
+	Type           string `json:"type,omitempty"`
+	Status         string `json:"status"`
+	UpdatedAt      string `json:"updatedAt,omitempty"`
+	StatusObserved bool   `json:"statusObserved"`
 }
 
 type InvoiceContact struct {
@@ -140,6 +156,7 @@ type InvoiceLister interface {
 	ListInvoices(context.Context, auth.TokenSet, ListInvoicesRequest) ([]Invoice, error)
 	GetOnlineInvoice(context.Context, auth.TokenSet, GetOnlineInvoiceRequest) (OnlineInvoiceResult, error)
 	GetInvoicePDF(context.Context, auth.TokenSet, GetInvoicePDFRequest, io.Writer) (InvoicePDFResult, error)
+	ApproveInvoice(context.Context, auth.TokenSet, ApproveInvoiceRequest) (InvoiceApprovalResult, error)
 }
 
 type writeFailure struct {
@@ -481,6 +498,65 @@ func (c *Client) GetInvoicePDF(ctx context.Context, token auth.TokenSet, request
 		ContentType: contentType,
 		Bytes:       bytesWritten,
 	}, nil
+}
+
+func (c *Client) ApproveInvoice(ctx context.Context, token auth.TokenSet, request ApproveInvoiceRequest) (InvoiceApprovalResult, error) {
+	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices")
+	if err != nil {
+		return InvoiceApprovalResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero approve invoice URL", err)
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"Invoices": []map[string]string{{
+			"InvoiceID": request.InvoiceID,
+			"Status":    "AUTHORISED",
+		}},
+	})
+	if err != nil {
+		return InvoiceApprovalResult{}, clierrors.Wrap(clierrors.KindInternal, "encode invoice approval payload", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return InvoiceApprovalResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero approve invoice request", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Xero-tenant-id", request.TenantID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return InvoiceApprovalResult{}, clierrors.Wrap(clierrors.KindNetwork, "send Xero approve invoice request", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return InvoiceApprovalResult{}, decodeAPIError(resp)
+	}
+
+	var payload invoicesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return InvoiceApprovalResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "decode Xero approve invoice response", err)
+	}
+	if len(payload.Invoices) == 0 {
+		return InvoiceApprovalResult{}, clierrors.New(clierrors.KindXeroRequest, "Xero approve invoice response did not include an invoice")
+	}
+
+	invoice := payload.Invoices[0]
+	result := InvoiceApprovalResult{
+		InvoiceID:      firstNonEmpty(invoice.InvoiceID, request.InvoiceID),
+		TenantID:       request.TenantID,
+		InvoiceNumber:  invoice.InvoiceNumber,
+		Type:           invoice.Type,
+		Status:         invoice.Status,
+		UpdatedAt:      normalizeTimestamp(invoice.UpdatedDateUTC),
+		StatusObserved: strings.EqualFold(invoice.Status, "AUTHORISED"),
+	}
+	if !result.StatusObserved {
+		return InvoiceApprovalResult{}, clierrors.New(clierrors.KindXeroAPI, firstNonEmpty(invoice.Status, "invoice approval was not confirmed by Xero"))
+	}
+	return result, nil
 }
 
 func decodeAPIError(resp *http.Response) error {

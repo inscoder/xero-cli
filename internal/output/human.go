@@ -55,6 +55,15 @@ func WriteInvoicePDFSaved(writer io.Writer, result xeroapi.InvoicePDFResult) err
 	return err
 }
 
+func WriteInvoiceApproved(writer io.Writer, result xeroapi.InvoiceApprovalResult) error {
+	label := result.InvoiceID
+	if result.InvoiceNumber != "" {
+		label = fmt.Sprintf("%s (%s)", result.InvoiceNumber, result.InvoiceID)
+	}
+	_, err := fmt.Fprintf(writer, "Approved invoice %s for tenant %s (%s)\n", label, result.TenantID, result.Status)
+	return err
+}
+
 func WriteStatus(writer io.Writer, authenticated bool, session auth.SessionMetadata, defaultTenantID, defaultTenantName string, refreshNeeded bool) error {
 	status := "Not authenticated"
 	if authenticated {
