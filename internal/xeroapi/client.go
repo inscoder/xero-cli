@@ -3,6 +3,7 @@ package xeroapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -139,6 +140,36 @@ type InvoiceLister interface {
 	ListInvoices(context.Context, auth.TokenSet, ListInvoicesRequest) ([]Invoice, error)
 	GetOnlineInvoice(context.Context, auth.TokenSet, GetOnlineInvoiceRequest) (OnlineInvoiceResult, error)
 	GetInvoicePDF(context.Context, auth.TokenSet, GetInvoicePDFRequest, io.Writer) (InvoicePDFResult, error)
+}
+
+type writeFailure struct {
+	err error
+}
+
+func (w *writeFailure) Error() string {
+	if w == nil || w.err == nil {
+		return ""
+	}
+	return w.err.Error()
+}
+
+func (w *writeFailure) Unwrap() error {
+	if w == nil {
+		return nil
+	}
+	return w.err
+}
+
+type classifiedWriter struct {
+	writer io.Writer
+}
+
+func (w classifiedWriter) Write(p []byte) (int, error) {
+	n, err := w.writer.Write(p)
+	if err != nil {
+		return n, &writeFailure{err: err}
+	}
+	return n, nil
 }
 
 type ClientOptions struct {
@@ -436,8 +467,12 @@ func (c *Client) GetInvoicePDF(ctx context.Context, token auth.TokenSet, request
 		return InvoicePDFResult{}, clierrors.New(clierrors.KindXeroRequest, fmt.Sprintf("unexpected invoice PDF content type %q", contentType))
 	}
 
-	bytesWritten, err := io.Copy(writer, resp.Body)
+	bytesWritten, err := io.Copy(classifiedWriter{writer: writer}, resp.Body)
 	if err != nil {
+		var writeErr *writeFailure
+		if errors.As(err, &writeErr) {
+			return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindInternal, "write invoice PDF output", writeErr.Unwrap())
+		}
 		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindNetwork, "stream Xero invoice PDF response", err)
 	}
 

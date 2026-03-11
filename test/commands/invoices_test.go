@@ -3,6 +3,7 @@ package commands_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/cesar/xero-cli/internal/commands"
 	appconfig "github.com/cesar/xero-cli/internal/config"
 	clierrors "github.com/cesar/xero-cli/internal/errors"
+	"github.com/cesar/xero-cli/internal/output"
 	"github.com/cesar/xero-cli/internal/xeroapi"
 	"github.com/spf13/viper"
 )
@@ -431,6 +433,62 @@ func TestInvoicesPDFCommandRejectsInteractiveStdoutOutput(t *testing.T) {
 	}
 	if lister.pdfRequest.InvoiceID != "" {
 		t.Fatalf("expected client not to be called, got request %+v", lister.pdfRequest)
+	}
+}
+
+func TestInvoicesPDFCommandQuotesBreadcrumbOutputPath(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF")}
+	deps, stdout, _ := testDependencies(configPath, store, lister, false)
+
+	outputPath := filepath.Join(tempDir, "my invoice.pdf")
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", outputPath, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices pdf: %v", err)
+	}
+
+	var envelope output.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if len(envelope.Breadcrumbs) != 1 {
+		t.Fatalf("expected one breadcrumb, got %+v", envelope.Breadcrumbs)
+	}
+	expected := `xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output ` + `"` + outputPath + `" --tenant tenant-1 --json`
+	if envelope.Breadcrumbs[0].Cmd != expected {
+		t.Fatalf("unexpected breadcrumb: %q", envelope.Breadcrumbs[0].Cmd)
+	}
+}
+
+func TestInvoicesPDFCommandClassifiesOutputPathErrorsAsInternal(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	blocker := filepath.Join(tempDir, "blocked")
+	if err := os.WriteFile(blocker, []byte("nope"), 0o600); err != nil {
+		t.Fatalf("write blocker file: %v", err)
+	}
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{pdfContent: []byte("%PDF")}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "pdf", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--output", filepath.Join(blocker, "invoice.pdf")})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindInternal {
+		t.Fatalf("expected internal error, got %v", err)
+	}
+	if lister.pdfRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got %+v", lister.pdfRequest)
 	}
 }
 

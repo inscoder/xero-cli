@@ -3,6 +3,7 @@ package xeroapi_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -218,4 +219,30 @@ func TestGetInvoicePDFMapsRateLimitError(t *testing.T) {
 	if clierrors.KindOf(err) != clierrors.KindRateLimit {
 		t.Fatalf("expected rate limit error, got %v", err)
 	}
+}
+
+func TestGetInvoicePDFClassifiesWriterErrorsAsInternal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = io.WriteString(w, "%PDF-1.7\nhello\n")
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	boom := errors.New("writer failed")
+	_, err := client.GetInvoicePDF(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoicePDFRequest{TenantID: "tenant-1", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734"}, errWriter{err: boom})
+	if clierrors.KindOf(err) != clierrors.KindInternal {
+		t.Fatalf("expected internal error, got %v", err)
+	}
+	if !errors.Is(err, boom) {
+		t.Fatalf("expected wrapped writer error, got %v", err)
+	}
+}
+
+type errWriter struct {
+	err error
+}
+
+func (w errWriter) Write(p []byte) (int, error) {
+	return 0, w.err
 }

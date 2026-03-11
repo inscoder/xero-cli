@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/cesar/xero-cli/internal/auth"
@@ -85,7 +86,7 @@ func newInvoicesPDFCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			summary := "invoice PDF saved"
 			breadcrumbs := []output.Breadcrumb{{
 				Action: "show",
-				Cmd:    fmt.Sprintf("xero invoices pdf --invoice-id %s --output %s --tenant %s --json", result.InvoiceID, result.SavedTo, tenant.ID),
+				Cmd:    fmt.Sprintf("xero invoices pdf --invoice-id %s --output %s --tenant %s --json", result.InvoiceID, strconv.Quote(result.SavedTo), tenant.ID),
 			}}
 
 			return rt.WriteData(result, summary, breadcrumbs, func(w io.Writer) error {
@@ -104,13 +105,13 @@ func newInvoicesPDFCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 func writeInvoicePDFToFile(ctx context.Context, rt *Runtime, token auth.TokenSet, request xeroapi.GetInvoicePDFRequest, outputPath string) (xeroapi.InvoicePDFResult, error) {
 	destination := filepath.Clean(outputPath)
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
-		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "create invoice PDF output directory", err)
+		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindInternal, "create invoice PDF output directory", err)
 	}
 
 	tmpPath := destination + ".tmp"
 	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "create invoice PDF output file", err)
+		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindInternal, "create invoice PDF output file", err)
 	}
 
 	result, writeErr := rt.Xero.GetInvoicePDF(ctx, token, request, file)
@@ -121,11 +122,11 @@ func writeInvoicePDFToFile(ctx context.Context, rt *Runtime, token auth.TokenSet
 	}
 	if closeErr != nil {
 		_ = os.Remove(tmpPath)
-		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "close invoice PDF output file", closeErr)
+		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindInternal, "close invoice PDF output file", closeErr)
 	}
 	if err := os.Rename(tmpPath, destination); err != nil {
 		_ = os.Remove(tmpPath)
-		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "move invoice PDF output file into place", err)
+		return xeroapi.InvoicePDFResult{}, clierrors.Wrap(clierrors.KindInternal, "move invoice PDF output file into place", err)
 	}
 	return result, nil
 }
