@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	clierrors "github.com/cesar/xero-cli/internal/errors"
 	"github.com/cesar/xero-cli/internal/output"
 	"github.com/cesar/xero-cli/internal/xeroapi"
 )
@@ -136,5 +137,75 @@ func TestWriteJSONQuietEmitsRawInvoicePDFResult(t *testing.T) {
 	expected := "{\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"contentType\": \"application/pdf\",\n  \"bytes\": 48213,\n  \"output\": \"file\",\n  \"savedTo\": \"invoice.pdf\",\n  \"streamed\": false\n}\n"
 	if buffer.String() != expected {
 		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
+	}
+}
+
+func TestWriteJSONEnvelopeContractForInvoiceApprovalResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.InvoiceApprovalResult{
+		InvoiceID:      "220ddca8-3144-4085-9a88-2d72c5133734",
+		TenantID:       "tenant-1",
+		InvoiceNumber:  "INV-1000",
+		Type:           "ACCREC",
+		Status:         "AUTHORISED",
+		UpdatedAt:      "2026-03-11T12:30:00Z",
+		StatusObserved: true,
+	}
+	breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant tenant-1 --json"}}
+
+	if err := output.WriteJSON(&buffer, result, "invoice approved", breadcrumbs, false); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+
+	expected := "{\n  \"ok\": true,\n  \"data\": {\n    \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n    \"tenantId\": \"tenant-1\",\n    \"invoiceNumber\": \"INV-1000\",\n    \"type\": \"ACCREC\",\n    \"status\": \"AUTHORISED\",\n    \"updatedAt\": \"2026-03-11T12:30:00Z\",\n    \"statusObserved\": true\n  },\n  \"summary\": \"invoice approved\",\n  \"breadcrumbs\": [\n    {\n      \"action\": \"show\",\n      \"cmd\": \"xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant tenant-1 --json\"\n    }\n  ]\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteJSONQuietEmitsRawInvoiceApprovalResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.InvoiceApprovalResult{
+		InvoiceID:      "220ddca8-3144-4085-9a88-2d72c5133734",
+		TenantID:       "tenant-1",
+		Status:         "AUTHORISED",
+		StatusObserved: true,
+	}
+
+	if err := output.WriteJSON(&buffer, result, "invoice approved", nil, true); err != nil {
+		t.Fatalf("write quiet json: %v", err)
+	}
+
+	expected := "{\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"tenantId\": \"tenant-1\",\n  \"status\": \"AUTHORISED\",\n  \"statusObserved\": true\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
+	}
+}
+
+func TestWriteErrorJSONEnvelopeContract(t *testing.T) {
+	var buffer bytes.Buffer
+	err := clierrors.New(clierrors.KindXeroAPI, "A validation exception occurred")
+
+	if err := output.WriteErrorJSON(&buffer, err, false); err != nil {
+		t.Fatalf("write error json: %v", err)
+	}
+
+	expected := "{\n  \"ok\": false,\n  \"error\": {\n    \"kind\": \"XeroApiError\",\n    \"message\": \"A validation exception occurred\",\n    \"exitCode\": 14\n  }\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected error envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteErrorJSONQuietContract(t *testing.T) {
+	var buffer bytes.Buffer
+	err := clierrors.New(clierrors.KindValidation, "--invoice-id must be a valid UUID")
+
+	if err := output.WriteErrorJSON(&buffer, err, true); err != nil {
+		t.Fatalf("write quiet error json: %v", err)
+	}
+
+	expected := "{\n  \"kind\": \"ValidationError\",\n  \"message\": \"--invoice-id must be a valid UUID\",\n  \"exitCode\": 12\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected quiet error payload:\n%s", buffer.String())
 	}
 }

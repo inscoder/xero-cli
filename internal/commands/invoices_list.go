@@ -103,6 +103,7 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 	cmd.Flags().StringVar(&request.Order, "order", defaultInvoiceOrder, "order clause (for example: 'UpdatedDateUTC DESC')")
 	cmd.Flags().IntVar(&request.Page, "page", 0, "page number")
 	cmd.Flags().IntVar(&request.PageSize, "page-size", 0, "page size (requires --page)")
+	cmd.AddCommand(newInvoicesApproveCommand(deps, v))
 	cmd.AddCommand(newInvoicesPDFCommand(deps, v))
 	cmd.AddCommand(newInvoicesOnlineURLCommand(deps, v))
 	return cmd

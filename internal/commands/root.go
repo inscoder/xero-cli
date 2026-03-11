@@ -67,10 +67,53 @@ func Execute(version string) error {
 	deps := defaultDependencies(version)
 	root := NewRootCommand(deps)
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(deps.IO.ErrOut, err)
+		handleExecuteError(root, deps, err)
 		os.Exit(clierrors.ExitCode(err))
 	}
 	return nil
+}
+
+func handleExecuteError(root *cobra.Command, deps Dependencies, err error) {
+	if structured, quiet := wantsStructuredErrors(root, deps); structured {
+		if writeErr := output.WriteErrorJSON(deps.IO.Out, err, quiet); writeErr == nil {
+			return
+		}
+	}
+	fmt.Fprintln(deps.IO.ErrOut, err)
+}
+
+func wantsStructuredErrors(root *cobra.Command, deps Dependencies) (bool, bool) {
+	quiet, _ := root.PersistentFlags().GetBool("quiet")
+	if quiet {
+		return true, true
+	}
+
+	outputJSON, _ := root.PersistentFlags().GetBool("json")
+	if outputJSON {
+		return true, false
+	}
+
+	settings, err := loadErrorOutputSettings(root, deps)
+	if err != nil {
+		return false, false
+	}
+	if settings.Quiet {
+		return true, true
+	}
+	return settings.OutputJSON, false
+}
+
+func loadErrorOutputSettings(root *cobra.Command, deps Dependencies) (appconfig.Settings, error) {
+	v := deps.NewViper()
+	appconfig.ConfigureViper(v)
+	if flag := root.PersistentFlags().Lookup("config"); flag != nil {
+		v.Set("config", flag.Value.String())
+	}
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		return appconfig.Settings{}, err
+	}
+	return manager.Load(deps.IsTerminal(0), deps.Version)
 }
 
 func NewRootCommand(deps Dependencies) *cobra.Command {
