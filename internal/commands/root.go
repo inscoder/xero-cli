@@ -123,9 +123,13 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "xero",
 		Short:         "Terminal-first Xero CLI",
+		Version:       deps.Version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	root.SetOut(deps.IO.Out)
+	root.SetErr(deps.IO.ErrOut)
+	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
 
 	root.PersistentFlags().String("config", "", "config file path")
 	root.PersistentFlags().Bool("json", false, "emit JSON envelope on stdout")
@@ -146,6 +150,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newAuthCommand(deps, v))
 	root.AddCommand(newInvoicesCommand(deps, v))
 	root.AddCommand(newDoctorCommand(deps, v))
+	root.AddCommand(newVersionCommand(deps))
 
 	return root
 }
