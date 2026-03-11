@@ -62,3 +62,36 @@ func TestWriteJSONQuietEmitsRawDataOnly(t *testing.T) {
 		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
 	}
 }
+
+func TestWriteJSONEnvelopeContractForOnlineInvoiceResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.OnlineInvoiceResult{
+		InvoiceID:        "220ddca8-3144-4085-9a88-2d72c5133734",
+		OnlineInvoiceURL: "https://in.xero.com/abc",
+		Available:        true,
+	}
+	breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant tenant-1 --json"}}
+
+	if err := output.WriteJSON(&buffer, result, "online invoice URL available", breadcrumbs, false); err != nil {
+		t.Fatalf("write json: %v", err)
+	}
+
+	expected := "{\n  \"ok\": true,\n  \"data\": {\n    \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n    \"onlineInvoiceUrl\": \"https://in.xero.com/abc\",\n    \"available\": true\n  },\n  \"summary\": \"online invoice URL available\",\n  \"breadcrumbs\": [\n    {\n      \"action\": \"show\",\n      \"cmd\": \"xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant tenant-1 --json\"\n    }\n  ]\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteJSONQuietEmitsRawOnlineInvoiceResult(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.OnlineInvoiceResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", Available: false}
+
+	if err := output.WriteJSON(&buffer, result, "online invoice URL unavailable", nil, true); err != nil {
+		t.Fatalf("write quiet json: %v", err)
+	}
+
+	expected := "{\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"available\": false\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
+	}
+}

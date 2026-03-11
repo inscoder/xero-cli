@@ -6,6 +6,7 @@
 xero auth login
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
+xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices --where 'Type=="ACCPAY" AND AmountDue>=5000'
 xero invoices --tenant <tenant-id> --json
 ```
@@ -29,6 +30,50 @@ xero invoices --tenant <tenant-id> --json
 - `--page-size` maps directly to Xero's `pageSize` query parameter and is only valid when `--page` is present
 - `--where` is passed through directly to Xero, so quote it in your shell
 - `--json` and `--quiet` now return full invoice records rather than a compact invoice summary
+- invoice `url` in list output is not the customer-facing online invoice URL; use `xero invoices online-url` for that workflow
+
+## `xero invoices online-url`
+
+### Usage
+
+```bash
+xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
+xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json
+```
+
+### Flags
+
+- `--invoice-id <uuid>`: required invoice ID to resolve through Xero's dedicated online-invoice endpoint
+- `--tenant <tenant-id>`: override the saved default tenant
+- `--json`: emit the JSON envelope
+- `--quiet`: emit raw `data` only
+- `--no-browser`: fail instead of opening a browser when auth is required
+
+### Notes
+
+- this command calls `GET /Invoices/{InvoiceID}/OnlineInvoice`
+- when a URL exists, the default human output prints the URL only
+- when Xero returns no online invoice URL, the command exits successfully and explains that no URL is available yet
+
+### JSON example
+
+```json
+{
+  "ok": true,
+  "data": {
+    "invoiceId": "220ddca8-3144-4085-9a88-2d72c5133734",
+    "onlineInvoiceUrl": "https://in.xero.com/abc",
+    "available": true
+  },
+  "summary": "online invoice URL available",
+  "breadcrumbs": [
+    {
+      "action": "show",
+      "cmd": "xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --tenant <tenant-id> --json"
+    }
+  ]
+}
+```
 
 ## JSON example
 

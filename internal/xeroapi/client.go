@@ -66,6 +66,17 @@ type ListInvoicesRequest struct {
 	PageSize   int
 }
 
+type GetOnlineInvoiceRequest struct {
+	TenantID  string
+	InvoiceID string
+}
+
+type OnlineInvoiceResult struct {
+	InvoiceID        string `json:"invoiceId"`
+	OnlineInvoiceURL string `json:"onlineInvoiceUrl,omitempty"`
+	Available        bool   `json:"available"`
+}
+
 type InvoiceContact struct {
 	ContactID     string `json:"contactId,omitempty"`
 	Name          string `json:"name,omitempty"`
@@ -111,6 +122,7 @@ type InvoiceAllocation struct {
 
 type InvoiceLister interface {
 	ListInvoices(context.Context, auth.TokenSet, ListInvoicesRequest) ([]Invoice, error)
+	GetOnlineInvoice(context.Context, auth.TokenSet, GetOnlineInvoiceRequest) (OnlineInvoiceResult, error)
 }
 
 type ClientOptions struct {
@@ -126,6 +138,14 @@ type Client struct {
 
 type invoicesResponse struct {
 	Invoices []invoicePayload `json:"Invoices"`
+}
+
+type onlineInvoicesResponse struct {
+	OnlineInvoices []onlineInvoicePayload `json:"OnlineInvoices"`
+}
+
+type onlineInvoicePayload struct {
+	OnlineInvoiceURL string `json:"OnlineInvoiceUrl"`
 }
 
 type invoicePayload struct {
@@ -282,17 +302,7 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		var payload apiErrorPayload
-		_ = json.NewDecoder(resp.Body).Decode(&payload)
-		message := firstNonEmpty(payload.Detail, payload.Message, payload.Error, payload.Title, resp.Status)
-		switch resp.StatusCode {
-		case http.StatusTooManyRequests:
-			return nil, clierrors.New(clierrors.KindRateLimit, message)
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return nil, clierrors.New(clierrors.KindAuthRequired, message)
-		default:
-			return nil, clierrors.New(clierrors.KindXeroAPI, message)
-		}
+		return nil, decodeAPIError(resp)
 	}
 
 	var payload invoicesResponse
@@ -338,6 +348,61 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 		})
 	}
 	return invoices, nil
+}
+
+func (c *Client) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, request GetOnlineInvoiceRequest) (OnlineInvoiceResult, error) {
+	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices/" + url.PathEscape(request.InvoiceID) + "/OnlineInvoice")
+	if err != nil {
+		return OnlineInvoiceResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero online invoice URL", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return OnlineInvoiceResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero online invoice request", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Xero-tenant-id", request.TenantID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return OnlineInvoiceResult{}, clierrors.Wrap(clierrors.KindNetwork, "send Xero online invoice request", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return OnlineInvoiceResult{}, decodeAPIError(resp)
+	}
+
+	var payload onlineInvoicesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return OnlineInvoiceResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "decode Xero online invoice response", err)
+	}
+
+	result := OnlineInvoiceResult{InvoiceID: request.InvoiceID}
+	for _, item := range payload.OnlineInvoices {
+		if strings.TrimSpace(item.OnlineInvoiceURL) == "" {
+			continue
+		}
+		result.OnlineInvoiceURL = item.OnlineInvoiceURL
+		result.Available = true
+		break
+	}
+	return result, nil
+}
+
+func decodeAPIError(resp *http.Response) error {
+	var payload apiErrorPayload
+	_ = json.NewDecoder(resp.Body).Decode(&payload)
+	message := firstNonEmpty(payload.Detail, payload.Message, payload.Error, payload.Title, resp.Status)
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
+		return clierrors.New(clierrors.KindRateLimit, message)
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return clierrors.New(clierrors.KindAuthRequired, message)
+	default:
+		return clierrors.New(clierrors.KindXeroAPI, message)
+	}
 }
 
 func normalizeContact(raw contactPayload) InvoiceContact {
