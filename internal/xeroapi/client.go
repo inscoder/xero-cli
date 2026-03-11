@@ -59,7 +59,6 @@ type ListInvoicesRequest struct {
 	TenantID   string
 	InvoiceIDs []string
 	Statuses   []string
-	Contact    string
 	Since      string
 	Where      string
 	Order      string
@@ -246,9 +245,6 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 	}
 	if len(request.Statuses) > 0 {
 		query.Set("Statuses", strings.Join(request.Statuses, ","))
-	}
-	if request.Contact != "" {
-		query.Set("SearchTerm", request.Contact)
 	}
 	if request.Where != "" {
 		query.Set("where", request.Where)

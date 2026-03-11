@@ -15,7 +15,7 @@ The goal is to keep the top-level terminal and JSON envelope behavior stable whi
 
 ## Problem Statement
 
-The current `xero invoices` command only supports a narrow filter set: one `--status`, one `--contact`, `--since`, `--page`, and client-side `--limit` in `internal/commands/invoices_list.go:15`. The Xero client only maps `Statuses`, `searchTerm`, `page`, and `If-Modified-Since` in `internal/xeroapi/client.go:99`, and it does not expose Xero's native `pageSize` parameter.
+The current `xero invoices` command only supports a narrow filter set: one `--status`, `--since`, `--page`, and client-side `--limit` in `internal/commands/invoices_list.go:15`. The Xero client only maps `Statuses`, `page`, and `If-Modified-Since` in `internal/xeroapi/client.go:99`, and it does not expose Xero's native `pageSize` parameter.
 
 That leaves several common invoice workflows either unsupported or awkward:
 
@@ -41,7 +41,7 @@ Recommended contract decisions for v1 of this feature:
 
 - keep `--status` instead of introducing `--statuses`, but make it repeatable and comma-aware
 - add `--invoice-id` as a repeatable and comma-aware flag
-- keep existing `--contact`, `--since`, and `--page` behavior, but replace local `--limit` with API-backed `--page-size`
+- keep existing `--since` and `--page` behavior, but replace local `--limit` with API-backed `--page-size`
 - treat `--where` as an advanced escape hatch: pass the clause through unchanged instead of trying to parse the full Xero expression grammar locally
 - validate `--order` syntax locally so obvious mistakes fail before the request is sent, while documenting Xero's optimized order fields
 - require `--page-size` to be used with `--page`, matching Xero's documented API behavior
@@ -81,7 +81,6 @@ type ListInvoicesRequest struct {
     TenantID   string
     InvoiceIDs []string
     Statuses   []string
-    Contact    string
     Since      string
     Where      string
     Order      string
@@ -164,7 +163,7 @@ Deliverables:
 
 Success criteria:
 
-- command accepts the new flags without breaking existing `--status`, `--contact`, `--since`, and `--page` usage
+- command accepts the new flags without breaking existing `--status`, `--since`, and `--page` usage
 - invalid inputs fail with `clierrors.KindValidation`
 - request objects passed to the client are normalized and deterministic
 - the response model is ready to carry full invoice payloads instead of the current narrow summary object
@@ -295,7 +294,7 @@ Cross-layer scenarios worth covering:
 - [x] `xero invoices` supports `--order`, and when omitted the client sends `UpdatedDateUTC DESC`.
 - [x] `xero invoices` supports `--page-size`, maps it to Xero's `pageSize` query parameter, and rejects it when `--page` is absent.
 - [x] `xero invoices --json` and `xero invoices --quiet` return full invoice data from the Xero collection response instead of the current compact subset.
-- [x] Existing flags `--contact`, `--since`, `--page`, `--tenant`, `--json`, `--quiet`, and `--no-browser` continue to work.
+- [x] Existing flags `--since`, `--page`, `--tenant`, `--json`, `--quiet`, and `--no-browser` continue to work.
 - [x] Validation errors for malformed IDs, empty multi-value input, unknown statuses, malformed order syntax, and invalid `--page-size` usage are clear and typed.
 
 ### Non-Functional Requirements

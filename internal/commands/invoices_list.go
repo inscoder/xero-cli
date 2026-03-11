@@ -98,7 +98,6 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&request.InvoiceIDs, "invoice-id", nil, "invoice ID filter (repeatable or comma-separated)")
 	cmd.Flags().StringSliceVar(&request.Statuses, "status", nil, "invoice status filter (repeatable or comma-separated)")
-	cmd.Flags().StringVar(&request.Contact, "contact", "", "contact name or ID filter")
 	cmd.Flags().StringVar(&request.Since, "since", "", "updated since date (YYYY-MM-DD)")
 	cmd.Flags().StringVar(&request.Where, "where", "", "advanced Xero where clause")
 	cmd.Flags().StringVar(&request.Order, "order", defaultInvoiceOrder, "order clause (for example: 'UpdatedDateUTC DESC')")

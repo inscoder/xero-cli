@@ -25,9 +25,6 @@ func TestListInvoicesBuildsAdvancedRequestAndNormalizesResponse(t *testing.T) {
 		if got := r.URL.Query().Get("Statuses"); got != "AUTHORISED,PAID" {
 			t.Fatalf("unexpected statuses query: %q", got)
 		}
-		if got := r.URL.Query().Get("SearchTerm"); got != "Acme" {
-			t.Fatalf("unexpected contact query: %q", got)
-		}
 		if got := r.URL.Query().Get("where"); got != `Type=="ACCPAY" AND AmountDue>=5000` {
 			t.Fatalf("unexpected where query: %q", got)
 		}
@@ -58,7 +55,6 @@ func TestListInvoicesBuildsAdvancedRequestAndNormalizesResponse(t *testing.T) {
 		TenantID:   "tenant-1",
 		InvoiceIDs: []string{"220ddca8-3144-4085-9a88-2d72c5133734", "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0"},
 		Statuses:   []string{"AUTHORISED", "PAID"},
-		Contact:    "Acme",
 		Since:      "2026-03-01",
 		Where:      `Type=="ACCPAY" AND AmountDue>=5000`,
 		Order:      "UpdatedDateUTC DESC",

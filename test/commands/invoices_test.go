@@ -91,7 +91,7 @@ func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
 	deps, _, _ := testDependencies(configPath, store, lister, false)
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "invoices", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734,88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", "--status", "authorised,paid", "--where", `Type=="ACCPAY" AND AmountDue>=5000`, "--order", "Date asc", "--page", "2", "--page-size", "50", "--contact", "Acme", "--since", "2026-03-01", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734,88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", "--status", "authorised,paid", "--where", `Type=="ACCPAY" AND AmountDue>=5000`, "--order", "Date asc", "--page", "2", "--page-size", "50", "--since", "2026-03-01", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute invoices with filters: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
 	if lister.request.Page != 2 || lister.request.PageSize != 50 {
 		t.Fatalf("unexpected paging: page=%d pageSize=%d", lister.request.Page, lister.request.PageSize)
 	}
-	if lister.request.Contact != "Acme" || lister.request.Since != "2026-03-01" {
+	if lister.request.Since != "2026-03-01" {
 		t.Fatalf("unexpected passthrough fields: %+v", lister.request)
 	}
 }
@@ -154,6 +154,24 @@ func TestInvoicesCommandRejectsUnknownStatus(t *testing.T) {
 	err := cmd.Execute()
 	if clierrors.KindOf(err) != clierrors.KindValidation {
 		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestInvoicesCommandRejectsRemovedContactFlag(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--contact", "Acme", "--json"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --contact") {
+		t.Fatalf("expected unknown flag error for removed --contact, got %v", err)
 	}
 }
 

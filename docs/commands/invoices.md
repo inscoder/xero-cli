@@ -15,7 +15,6 @@ xero invoices --tenant <tenant-id> --json
 - `--tenant <tenant-id>`: override the saved default tenant
 - `--invoice-id <uuid[,uuid...]>`: filter by one or more invoice IDs; repeatable and comma-separated
 - `--status <status[,status...]>`: filter by one or more statuses; repeatable and comma-separated
-- `--contact <name-or-id>`: filter by contact
 - `--since <YYYY-MM-DD>`: filter recent invoices
 - `--where <clause>`: advanced Xero `where` clause for optimized fields such as `Type`, `Date`, `DueDate`, `AmountDue`, and exact contact matching
 - `--order "<Field> <ASC|DESC>"`: custom ordering, defaults to `UpdatedDateUTC DESC`
