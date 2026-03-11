@@ -7,7 +7,7 @@
 ### Go install
 
 ```bash
-go install github.com/cesar/xero-cli/cmd/xero@latest
+go install github.com/inscoder/xero-cli/cmd/xero@latest
 xero version
 ```
 

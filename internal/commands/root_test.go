@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"testing"
 
-	clierrors "github.com/cesar/xero-cli/internal/errors"
-	appversion "github.com/cesar/xero-cli/internal/version"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
+	appversion "github.com/inscoder/xero-cli/internal/version"
 	"github.com/spf13/viper"
 )
 

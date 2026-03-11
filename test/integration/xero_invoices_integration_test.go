@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cesar/xero-cli/internal/auth"
-	"github.com/cesar/xero-cli/internal/commands"
-	appconfig "github.com/cesar/xero-cli/internal/config"
-	"github.com/cesar/xero-cli/internal/xeroapi"
+	"github.com/inscoder/xero-cli/internal/auth"
+	"github.com/inscoder/xero-cli/internal/commands"
+	appconfig "github.com/inscoder/xero-cli/internal/config"
+	"github.com/inscoder/xero-cli/internal/xeroapi"
 	"github.com/spf13/viper"
 )
 

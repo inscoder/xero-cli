@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	clierrors "github.com/cesar/xero-cli/internal/errors"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
 	"github.com/spf13/viper"
 	"github.com/subosito/gotenv"
 )

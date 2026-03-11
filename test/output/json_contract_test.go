@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"testing"
 
-	clierrors "github.com/cesar/xero-cli/internal/errors"
-	"github.com/cesar/xero-cli/internal/output"
-	"github.com/cesar/xero-cli/internal/xeroapi"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
+	"github.com/inscoder/xero-cli/internal/output"
+	"github.com/inscoder/xero-cli/internal/xeroapi"
 )
 
 func TestWriteJSONEnvelopeContract(t *testing.T) {

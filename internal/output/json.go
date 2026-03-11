@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
-	clierrors "github.com/cesar/xero-cli/internal/errors"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
 )
 
 type Breadcrumb struct {

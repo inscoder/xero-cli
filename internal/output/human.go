@@ -5,8 +5,8 @@ import (
 	"io"
 	"text/tabwriter"
 
-	"github.com/cesar/xero-cli/internal/auth"
-	"github.com/cesar/xero-cli/internal/xeroapi"
+	"github.com/inscoder/xero-cli/internal/auth"
+	"github.com/inscoder/xero-cli/internal/xeroapi"
 )
 
 func WriteInvoices(writer io.Writer, invoices []xeroapi.Invoice, summary string, breadcrumbs []Breadcrumb) error {

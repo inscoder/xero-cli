@@ -1,4 +1,4 @@
-module github.com/cesar/xero-cli
+module github.com/inscoder/xero-cli
 
 go 1.22
 

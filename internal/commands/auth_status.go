@@ -4,9 +4,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/cesar/xero-cli/internal/auth"
-	clierrors "github.com/cesar/xero-cli/internal/errors"
-	"github.com/cesar/xero-cli/internal/output"
+	"github.com/inscoder/xero-cli/internal/auth"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
+	"github.com/inscoder/xero-cli/internal/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

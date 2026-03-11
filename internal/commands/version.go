@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/cesar/xero-cli/internal/output"
-	appversion "github.com/cesar/xero-cli/internal/version"
+	"github.com/inscoder/xero-cli/internal/output"
+	appversion "github.com/inscoder/xero-cli/internal/version"
 	"github.com/spf13/cobra"
 )
 
