@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	clierrors "github.com/cesar/xero-cli/internal/errors"
 	"github.com/cesar/xero-cli/internal/output"
 	"github.com/cesar/xero-cli/internal/xeroapi"
 )
@@ -178,5 +179,33 @@ func TestWriteJSONQuietEmitsRawInvoiceApprovalResult(t *testing.T) {
 	expected := "{\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"tenantId\": \"tenant-1\",\n  \"status\": \"AUTHORISED\",\n  \"statusObserved\": true\n}\n"
 	if buffer.String() != expected {
 		t.Fatalf("unexpected quiet payload:\n%s", buffer.String())
+	}
+}
+
+func TestWriteErrorJSONEnvelopeContract(t *testing.T) {
+	var buffer bytes.Buffer
+	err := clierrors.New(clierrors.KindXeroAPI, "A validation exception occurred")
+
+	if err := output.WriteErrorJSON(&buffer, err, false); err != nil {
+		t.Fatalf("write error json: %v", err)
+	}
+
+	expected := "{\n  \"ok\": false,\n  \"error\": {\n    \"kind\": \"XeroApiError\",\n    \"message\": \"A validation exception occurred\",\n    \"exitCode\": 14\n  }\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected error envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteErrorJSONQuietContract(t *testing.T) {
+	var buffer bytes.Buffer
+	err := clierrors.New(clierrors.KindValidation, "--invoice-id must be a valid UUID")
+
+	if err := output.WriteErrorJSON(&buffer, err, true); err != nil {
+		t.Fatalf("write quiet error json: %v", err)
+	}
+
+	expected := "{\n  \"kind\": \"ValidationError\",\n  \"message\": \"--invoice-id must be a valid UUID\",\n  \"exitCode\": 12\n}\n"
+	if buffer.String() != expected {
+		t.Fatalf("unexpected quiet error payload:\n%s", buffer.String())
 	}
 }
