@@ -408,7 +408,7 @@ func (c *Client) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, requ
 }
 
 func (c *Client) GetInvoicePDF(ctx context.Context, token auth.TokenSet, request GetInvoicePDFRequest, writer io.Writer) (InvoicePDFResult, error) {
-	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices/" + url.PathEscape(request.InvoiceID) + "/pdf")
+	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices/" + url.PathEscape(request.InvoiceID))
 	if err != nil {
 		return InvoicePDFResult{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero invoice PDF URL", err)
 	}

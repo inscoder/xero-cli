@@ -161,7 +161,7 @@ func TestGetOnlineInvoiceReturnsUnavailableWhenURLMissing(t *testing.T) {
 
 func TestGetInvoicePDFBuildsRequestAndStreamsResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734/pdf" {
+		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
