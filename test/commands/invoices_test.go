@@ -23,10 +23,13 @@ import (
 
 type fakeAuth struct {
 	loginResult auth.LoginResult
+	loginErr    error
 	ensure      func(context.Context, auth.TokenSet, bool) (auth.TokenSet, bool, error)
 }
 
-func (f fakeAuth) Login(ctx context.Context) (auth.LoginResult, error) { return f.loginResult, nil }
+func (f fakeAuth) Login(ctx context.Context) (auth.LoginResult, error) {
+	return f.loginResult, f.loginErr
+}
 
 func (f fakeAuth) EnsureFreshToken(ctx context.Context, token auth.TokenSet, interactive bool) (auth.TokenSet, bool, error) {
 	if f.ensure != nil {
@@ -116,6 +119,61 @@ func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
 	}
 	if lister.request.TenantID != "tenant-1" {
 		t.Fatalf("expected default tenant to be used, got %q", lister.request.TenantID)
+	}
+}
+
+func TestAuthLoginPersistsOAuthCredentialsForLaterRefresh(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	t.Setenv("XERO_AUTH_CLIENT_ID", "client-from-env")
+	t.Setenv("XERO_AUTH_CLIENT_SECRET", "secret-from-env")
+	t.Setenv("XERO_AUTH_SCOPES", "openid profile email offline_access accounting.transactions")
+
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	deps := commands.Dependencies{
+		Version: "test",
+		IO:      commands.IOStreams{In: bytes.NewBuffer(nil), Out: stdout, ErrOut: stderr},
+		NewViper: func() *viper.Viper {
+			return viper.New()
+		},
+		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return &fakeStore{} },
+		NewSessionStore: auth.NewSessionStore,
+		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceLister {
+			return &fakeLister{}
+		},
+		NewBrowserAuth: func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) commands.Authenticator {
+			return fakeAuth{loginResult: auth.LoginResult{
+				Token:   auth.TokenSet{AuthMode: "browser_oauth", GeneratedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 12, 30, 0, 0, time.UTC)},
+				Tenants: []auth.Tenant{{ID: "tenant-1", Name: "Acme", Type: "ORGANISATION"}},
+				Default: auth.Tenant{ID: "tenant-1", Name: "Acme", Type: "ORGANISATION"},
+			}}
+		},
+		IsTerminal:       func(int) bool { return false },
+		LookPath:         func(string) error { return nil },
+		Now:              func() time.Time { return time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC) },
+		ContextFactory:   func() (context.Context, context.CancelFunc) { return context.WithCancel(context.Background()) },
+		PostRefreshState: func(*commands.Runtime, auth.TokenSet, bool) error { return nil },
+	}
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "auth", "login", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute auth login: %v", err)
+	}
+
+	authData, err := os.ReadFile(filepath.Join(tempDir, "auth.json"))
+	if err != nil {
+		t.Fatalf("read auth.json: %v", err)
+	}
+	if got := string(authData); got != "{\n  \"clientId\": \"client-from-env\",\n  \"clientSecret\": \"secret-from-env\"\n}\n" {
+		t.Fatalf("unexpected auth.json contents:\n%s", got)
+	}
+	if !strings.Contains(stdout.String(), `"summary": "Logged in to 1 tenant(s)"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
 	}
 }
 

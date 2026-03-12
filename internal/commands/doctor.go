@@ -23,9 +23,11 @@ func newDoctorCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			}
 			checks := []output.DoctorCheck{
 				checkFile("config", rt.Settings.ConfigFilePath),
+				checkFile("auth", rt.Settings.AuthFilePath),
 				checkFile("tokens", rt.Tokens.FallbackPath()),
 				checkBrowserCommand(rt.LookPath, rt.Settings.OpenCommand),
-				checkValue("client-id", rt.Settings.ClientID != "", "XERO_AUTH_CLIENT_ID configured"),
+				checkValue("client-id", rt.Settings.ClientID != "", "OAuth client ID available"),
+				checkValue("client-secret", rt.Settings.ClientSecret != "", "OAuth client secret available"),
 				checkValue("default-tenant", rt.Settings.DefaultTenantID != "", firstNonEmpty(rt.Settings.DefaultTenantName, rt.Settings.DefaultTenantID)),
 				checkValue("token-storage", true, rt.Tokens.StorageMode()),
 				checkValue("known-tenants", len(rt.SessionMeta.KnownTenants) > 0, fmt.Sprintf("%d discovered", len(rt.SessionMeta.KnownTenants))),

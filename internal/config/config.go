@@ -16,6 +16,7 @@ import (
 
 const (
 	defaultConfigFileName  = "config.json"
+	defaultAuthFileName    = "auth.json"
 	defaultSessionFileName = "session.json"
 	defaultTokenFileName   = "tokens.json"
 	defaultLockFileName    = "tokens.lock"
@@ -28,9 +29,15 @@ type FileConfig struct {
 	Scopes            []string `json:"scopes,omitempty"`
 }
 
+type AuthConfig struct {
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+}
+
 type Settings struct {
 	ConfigDir         string
 	ConfigFilePath    string
+	AuthFilePath      string
 	SessionFilePath   string
 	TokenFallbackPath string
 	TokenLockPath     string
@@ -54,7 +61,9 @@ type Manager struct {
 	viper      *viper.Viper
 	configDir  string
 	configFile string
+	authFile   string
 	loaded     FileConfig
+	loadedAuth AuthConfig
 }
 
 func NewManager(v *viper.Viper) (*Manager, error) {
@@ -74,6 +83,7 @@ func NewManager(v *viper.Viper) (*Manager, error) {
 		viper:      v,
 		configDir:  configDir,
 		configFile: configPath,
+		authFile:   filepath.Join(configDir, defaultAuthFileName),
 	}, nil
 }
 
@@ -118,6 +128,12 @@ func (m *Manager) Load(interactive bool, version string) (Settings, error) {
 	}
 	m.loaded = fileCfg
 
+	authCfg, err := m.readAuthConfig()
+	if err != nil {
+		return Settings{}, err
+	}
+	m.loadedAuth = authCfg
+
 	callbackTimeout, err := time.ParseDuration(m.viper.GetString("auth.callback_timeout"))
 	if err != nil {
 		return Settings{}, clierrors.Wrap(clierrors.KindValidation, "invalid auth callback timeout", err)
@@ -136,11 +152,12 @@ func (m *Manager) Load(interactive bool, version string) (Settings, error) {
 	settings := Settings{
 		ConfigDir:         m.configDir,
 		ConfigFilePath:    m.configFile,
+		AuthFilePath:      m.authFile,
 		SessionFilePath:   filepath.Join(m.configDir, defaultSessionFileName),
 		TokenFallbackPath: filepath.Join(m.configDir, defaultTokenFileName),
 		TokenLockPath:     filepath.Join(m.configDir, defaultLockFileName),
-		ClientID:          m.viper.GetString("auth.client_id"),
-		ClientSecret:      m.viper.GetString("auth.client_secret"),
+		ClientID:          firstNonEmpty(m.viper.GetString("auth.client_id"), authCfg.ClientID),
+		ClientSecret:      firstNonEmpty(m.viper.GetString("auth.client_secret"), authCfg.ClientSecret),
 		OutputJSON:        m.viper.GetBool("output.json"),
 		Quiet:             m.viper.GetBool("output.quiet"),
 		NoBrowser:         m.viper.GetBool("auth.no_browser"),
@@ -170,6 +187,10 @@ func (m *Manager) LoadedConfig() FileConfig {
 	return m.loaded
 }
 
+func (m *Manager) LoadedAuthConfig() AuthConfig {
+	return m.loadedAuth
+}
+
 func (m *Manager) UpdateDefaultTenant(id, name string) error {
 	cfg := m.loaded
 	cfg.DefaultTenantID = id
@@ -190,6 +211,20 @@ func (m *Manager) SetOutputMode(mode string) error {
 	return m.save(cfg)
 }
 
+func (m *Manager) PersistAuthCredentials(clientID, clientSecret string) error {
+	authCfg := m.loadedAuth
+	if strings.TrimSpace(clientID) != "" {
+		authCfg.ClientID = clientID
+	}
+	if strings.TrimSpace(clientSecret) != "" {
+		authCfg.ClientSecret = clientSecret
+	}
+	if authCfg == m.loadedAuth {
+		return nil
+	}
+	return m.saveAuthConfig(authCfg)
+}
+
 func (m *Manager) readFileConfig() (FileConfig, error) {
 	data, err := os.ReadFile(m.configFile)
 	if err != nil {
@@ -202,6 +237,22 @@ func (m *Manager) readFileConfig() (FileConfig, error) {
 	var cfg FileConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return FileConfig{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "parse config file", err)
+	}
+	return cfg, nil
+}
+
+func (m *Manager) readAuthConfig() (AuthConfig, error) {
+	data, err := os.ReadFile(m.authFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return AuthConfig{}, nil
+		}
+		return AuthConfig{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "read auth config file", err)
+	}
+
+	var cfg AuthConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return AuthConfig{}, clierrors.Wrap(clierrors.KindConfigCorrupted, "parse auth config file", err)
 	}
 	return cfg, nil
 }
@@ -225,6 +276,28 @@ func (m *Manager) save(cfg FileConfig) error {
 		return clierrors.Wrap(clierrors.KindConfigCorrupted, "replace config file", err)
 	}
 	m.loaded = cfg
+	return nil
+}
+
+func (m *Manager) saveAuthConfig(cfg AuthConfig) error {
+	if err := os.MkdirAll(filepath.Dir(m.authFile), 0o700); err != nil {
+		return clierrors.Wrap(clierrors.KindConfigCorrupted, "create auth config directory", err)
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return clierrors.Wrap(clierrors.KindInternal, "marshal auth config file", err)
+	}
+	data = append(data, '\n')
+
+	tmp := m.authFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return clierrors.Wrap(clierrors.KindConfigCorrupted, "write auth config file", err)
+	}
+	if err := os.Rename(tmp, m.authFile); err != nil {
+		return clierrors.Wrap(clierrors.KindConfigCorrupted, "replace auth config file", err)
+	}
+	m.loadedAuth = cfg
 	return nil
 }
 
@@ -285,5 +358,5 @@ func ValidateLoginConfig(settings Settings) error {
 }
 
 func DescribePaths(settings Settings) string {
-	return fmt.Sprintf("config=%s session=%s token-fallback=%s", settings.ConfigFilePath, settings.SessionFilePath, settings.TokenFallbackPath)
+	return fmt.Sprintf("config=%s auth=%s session=%s token-fallback=%s", settings.ConfigFilePath, settings.AuthFilePath, settings.SessionFilePath, settings.TokenFallbackPath)
 }

@@ -30,6 +30,9 @@ func newAuthLoginCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := rt.Config.PersistAuthCredentials(rt.Settings.ClientID, rt.Settings.ClientSecret); err != nil {
+				return err
+			}
 			data := map[string]any{
 				"authMode":      result.Token.AuthMode,
 				"generatedAt":   result.Token.GeneratedAt,

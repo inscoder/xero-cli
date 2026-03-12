@@ -41,10 +41,11 @@ xero doctor
 
 - precedence: `flags > env vars (including local .env) > persisted config`
 - config file: `~/.config/xero/config.json`
+- persisted OAuth app credentials: `~/.config/xero/auth.json`
 - session metadata: `~/.config/xero/session.json`
 - token storage: `~/.config/xero/tokens.json` with `0600` permissions for MVP
 
-In normal usage, the CLI reads `~/.config/xero/config.json` for non-secret persisted defaults like tenant and output mode. For development convenience, it also loads a local `.env` file from the current working directory when present.
+In normal usage, the CLI reads `~/.config/xero/config.json` for non-secret persisted defaults like tenant and output mode, and `~/.config/xero/auth.json` for persisted OAuth client credentials needed for later token refresh. For development convenience, it also loads a local `.env` file from the current working directory when present.
 
 ### Environment variables
 
@@ -63,6 +64,8 @@ You must set scopes explicitly with `XERO_AUTH_SCOPES` or add a `scopes` array t
 ## Auth flow
 
 `xero auth login` starts a local OAuth callback on `http://localhost:3000/callback`, opens the system browser, exchanges the authorization code using PKCE S256, and listens on both IPv4 and IPv6 loopback addresses when available before persisting the chosen default tenant for later commands.
+
+After a successful login, the CLI also persists the current OAuth client ID and client secret to `~/.config/xero/auth.json` so later refreshes still work in new shells where the original environment variables are no longer set.
 
 Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes only when the token is older than 25 minutes.
 

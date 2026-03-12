@@ -75,6 +75,76 @@ func TestLoadUsesConfigScopesWhenEnvMissing(t *testing.T) {
 	}
 }
 
+func TestLoadUsesPersistedAuthCredentialsWhenEnvMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	authPath := filepath.Join(tempDir, "auth.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(authPath, []byte("{\n  \"clientId\": \"client-from-auth\",\n  \"clientSecret\": \"secret-from-auth\"\n}\n"), 0o600); err != nil {
+		t.Fatalf("write auth config: %v", err)
+	}
+
+	v := viper.New()
+	appconfig.ConfigureViper(v)
+	v.Set("config", configPath)
+
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	settings, err := manager.Load(false, "test")
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+
+	if settings.ClientID != "client-from-auth" {
+		t.Fatalf("expected persisted client id, got %q", settings.ClientID)
+	}
+	if settings.ClientSecret != "secret-from-auth" {
+		t.Fatalf("expected persisted client secret, got %q", settings.ClientSecret)
+	}
+	if settings.AuthFilePath != authPath {
+		t.Fatalf("expected auth file path %q, got %q", authPath, settings.AuthFilePath)
+	}
+}
+
+func TestPersistAuthCredentialsWritesSeparateSecretFile(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	v := viper.New()
+	appconfig.ConfigureViper(v)
+	v.Set("config", configPath)
+
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	if _, err := manager.Load(false, "test"); err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if err := manager.PersistAuthCredentials("client-123", "secret-123"); err != nil {
+		t.Fatalf("persist auth credentials: %v", err)
+	}
+
+	authPath := filepath.Join(tempDir, "auth.json")
+	data, err := os.ReadFile(authPath)
+	if err != nil {
+		t.Fatalf("read auth file: %v", err)
+	}
+	if got := string(data); got != "{\n  \"clientId\": \"client-123\",\n  \"clientSecret\": \"secret-123\"\n}\n" {
+		t.Fatalf("unexpected auth file contents:\n%s", got)
+	}
+	if manager.LoadedAuthConfig().ClientSecret != "secret-123" {
+		t.Fatalf("expected loaded auth config to update, got %+v", manager.LoadedAuthConfig())
+	}
+}
+
 func TestConfigureViperLoadsDotEnvForDevelopment(t *testing.T) {
 	tempDir := t.TempDir()
 	originalClientID, hadClientID := os.LookupEnv("XERO_AUTH_CLIENT_ID")
