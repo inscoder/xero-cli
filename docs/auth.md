@@ -9,6 +9,7 @@
 - opens the system browser to Xero login
 - validates `state` on callback before exchanging the code
 - stores tokens in `~/.config/xero/tokens.json` with `0600` permissions for MVP
+- stores OAuth client credentials in `~/.config/xero/auth.json` for later refresh when env vars are no longer present
 - writes non-secret metadata to `~/.config/xero/session.json`
 - prompts for a default tenant when multiple tenants are returned
 - loads a local `.env` file from the current working directory when present, which is useful for local development secrets
@@ -25,6 +26,7 @@
 
 - missing client ID: set `XERO_AUTH_CLIENT_ID`
 - local development: copy `.env.example` to `.env` and set `XERO_AUTH_CLIENT_ID` / `XERO_AUTH_CLIENT_SECRET`
+- refresh fails with `invalid_client` in a new shell: rerun `xero auth login` once with valid client credentials so the CLI can persist them to `~/.config/xero/auth.json`
 - invalid scope for client: set `XERO_AUTH_SCOPES` or `~/.config/xero/config.json` `scopes` to the exact scopes allowed by your Xero app
 - missing scopes: the CLI will refuse login until you set `XERO_AUTH_SCOPES` or configure `scopes` in `~/.config/xero/config.json`
 - Linux browser launch: the CLI uses `xdg-open` by default; override with `XERO_AUTH_OPEN_COMMAND` if your distro uses a different opener
