@@ -465,7 +465,7 @@ func listenLoopback(address string) ([]net.Listener, error) {
 		listeners = append(listeners, listener)
 	}
 	if len(listeners) == 0 {
-		return nil, fmt.Errorf(strings.Join(errs, "; "))
+		return nil, errors.New(strings.Join(errs, "; "))
 	}
 	return listeners, nil
 }
