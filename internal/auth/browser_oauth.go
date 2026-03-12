@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
+	"syscall"
 	"time"
 
 	appconfig "github.com/inscoder/xero-cli/internal/config"
@@ -450,14 +451,15 @@ func listenLoopback(address string) ([]net.Listener, error) {
 		net.JoinHostPort("::1", strconv.Itoa(portNumber)),
 	}
 	listeners := make([]net.Listener, 0, len(addresses))
-	var mu sync.Mutex
 	var errs []string
 	for _, candidate := range addresses {
 		listener, listenErr := net.Listen("tcp", candidate)
 		if listenErr != nil {
-			mu.Lock()
+			if errors.Is(listenErr, syscall.EADDRINUSE) {
+				closeListeners(listeners)
+				return nil, listenErr
+			}
 			errs = append(errs, listenErr.Error())
-			mu.Unlock()
 			continue
 		}
 		listeners = append(listeners, listener)
