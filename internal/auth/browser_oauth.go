@@ -26,8 +26,10 @@ import (
 
 var (
 	browserCommandLookPath = exec.LookPath
+	newBrowserCommand      = exec.Command
 	startBrowserProcess    = startBrowserCommand
 	linuxBrowserCommands   = []string{"xdg-open", "x-www-browser", "www-browser"}
+	browserStartTimeout    = 250 * time.Millisecond
 )
 
 const (
@@ -130,10 +132,21 @@ func openBrowser(command string) func(string) error {
 	}
 	if runtime.GOOS == "linux" {
 		return func(target string) error {
-			return openBrowserWithProviders(target, linuxBrowserCommands)
+			return openBrowserWithProviders(target, DefaultBrowserCommands())
 		}
 	}
 	return browser.OpenURL
+}
+
+func DefaultBrowserCommands() []string {
+	switch runtime.GOOS {
+	case "linux":
+		return append([]string(nil), linuxBrowserCommands...)
+	case "darwin":
+		return []string{"open"}
+	default:
+		return nil
+	}
 }
 
 func openBrowserWithProviders(target string, providers []string) error {
@@ -146,11 +159,24 @@ func openBrowserWithProviders(target string, providers []string) error {
 }
 
 func startBrowserCommand(command string, args ...string) error {
-	cmd := exec.Command(command, args...)
+	cmd := newBrowserCommand(command, args...)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	return cmd.Process.Release()
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	timer := time.NewTimer(browserStartTimeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {

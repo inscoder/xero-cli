@@ -3,11 +3,38 @@ package auth
 import (
 	"errors"
 	"net"
+	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"syscall"
 	"testing"
+	"time"
 )
+
+func TestDefaultBrowserCommands(t *testing.T) {
+	commands := DefaultBrowserCommands()
+	switch runtime.GOOS {
+	case "linux":
+		expected := []string{"xdg-open", "x-www-browser", "www-browser"}
+		if len(commands) != len(expected) {
+			t.Fatalf("expected %d commands, got %d", len(expected), len(commands))
+		}
+		for index, command := range expected {
+			if commands[index] != command {
+				t.Fatalf("expected command %d to be %q, got %q", index, command, commands[index])
+			}
+		}
+	case "darwin":
+		if len(commands) != 1 || commands[0] != "open" {
+			t.Fatalf("expected macOS opener, got %#v", commands)
+		}
+	default:
+		if len(commands) != 0 {
+			t.Fatalf("expected no default commands on %s, got %#v", runtime.GOOS, commands)
+		}
+	}
+}
 
 func TestOpenBrowserUsesConfiguredCommand(t *testing.T) {
 	originalStart := startBrowserProcess
@@ -71,6 +98,72 @@ func TestOpenBrowserWithProvidersReturnsNotFoundWhenNoCommandExists(t *testing.T
 	}
 	if execErr.Err != exec.ErrNotFound {
 		t.Fatalf("expected command not found, got %v", execErr.Err)
+	}
+}
+
+func TestStartBrowserCommandReturnsQuickExitError(t *testing.T) {
+	originalNewCommand := newBrowserCommand
+	originalTimeout := browserStartTimeout
+	newBrowserCommand = helperBrowserCommand("fail")
+	browserStartTimeout = 200 * time.Millisecond
+	t.Cleanup(func() {
+		newBrowserCommand = originalNewCommand
+		browserStartTimeout = originalTimeout
+	})
+
+	err := startBrowserCommand("helper")
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("expected exit error, got %v", err)
+	}
+}
+
+func TestStartBrowserCommandReturnsAfterStartupTimeout(t *testing.T) {
+	originalNewCommand := newBrowserCommand
+	originalTimeout := browserStartTimeout
+	newBrowserCommand = helperBrowserCommand("sleep")
+	browserStartTimeout = 20 * time.Millisecond
+	t.Cleanup(func() {
+		newBrowserCommand = originalNewCommand
+		browserStartTimeout = originalTimeout
+	})
+
+	started := time.Now()
+	if err := startBrowserCommand("helper"); err != nil {
+		t.Fatalf("expected delayed browser command to be treated as started, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 150*time.Millisecond {
+		t.Fatalf("expected browser start to return quickly, took %s", elapsed)
+	}
+}
+
+func helperBrowserCommand(mode string) func(string, ...string) *exec.Cmd {
+	return func(_ string, _ ...string) *exec.Cmd {
+		cmd := exec.Command(os.Args[0], "-test.run=TestHelperBrowserProcess", "--", mode)
+		cmd.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1")
+		return cmd
+	}
+}
+
+func TestHelperBrowserProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
+		return
+	}
+	mode := ""
+	for index, arg := range os.Args {
+		if arg == "--" && index+1 < len(os.Args) {
+			mode = os.Args[index+1]
+			break
+		}
+	}
+	switch mode {
+	case "fail":
+		os.Exit(1)
+	case "sleep":
+		time.Sleep(250 * time.Millisecond)
+		os.Exit(0)
+	default:
+		os.Exit(0)
 	}
 }
 
