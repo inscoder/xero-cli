@@ -27,6 +27,7 @@
 - local development: copy `.env.example` to `.env` and set `XERO_AUTH_CLIENT_ID` / `XERO_AUTH_CLIENT_SECRET`
 - invalid scope for client: set `XERO_AUTH_SCOPES` or `~/.config/xero/config.json` `scopes` to the exact scopes allowed by your Xero app
 - missing scopes: the CLI will refuse login until you set `XERO_AUTH_SCOPES` or configure `scopes` in `~/.config/xero/config.json`
+- Linux browser launch: the CLI uses `xdg-open` by default; override with `XERO_AUTH_OPEN_COMMAND` if your distro uses a different opener
 - callback timeout: verify the browser can reach `http://localhost:3000/callback` and that port `3000` is free
 - stale tenant: rerun `xero auth login` to discover and choose a valid tenant again
 - token storage: inspect `~/.config/xero/tokens.json` permissions and rerun `xero doctor`

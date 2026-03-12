@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,14 @@ import (
 	appconfig "github.com/inscoder/xero-cli/internal/config"
 	clierrors "github.com/inscoder/xero-cli/internal/errors"
 	"github.com/pkg/browser"
+)
+
+var (
+	browserCommandLookPath = exec.LookPath
+	newBrowserCommand      = exec.Command
+	startBrowserProcess    = startBrowserCommand
+	linuxBrowserCommands   = []string{"xdg-open", "x-www-browser", "www-browser"}
+	browserStartTimeout    = 250 * time.Millisecond
 )
 
 const (
@@ -115,12 +124,58 @@ func NewBrowserAuthWithOptions(settings appconfig.Settings, store TokenStore, te
 }
 
 func openBrowser(command string) func(string) error {
-	if strings.TrimSpace(command) == "" {
-		return browser.OpenURL
+	command = strings.TrimSpace(command)
+	if command != "" {
+		return func(target string) error {
+			return startBrowserProcess(command, target)
+		}
 	}
-	return func(target string) error {
-		cmd := exec.Command(command, target)
-		return cmd.Start()
+	if runtime.GOOS == "linux" {
+		return func(target string) error {
+			return openBrowserWithProviders(target, DefaultBrowserCommands())
+		}
+	}
+	return browser.OpenURL
+}
+
+func DefaultBrowserCommands() []string {
+	switch runtime.GOOS {
+	case "linux":
+		return append([]string(nil), linuxBrowserCommands...)
+	case "darwin":
+		return []string{"open"}
+	default:
+		return nil
+	}
+}
+
+func openBrowserWithProviders(target string, providers []string) error {
+	for _, provider := range providers {
+		if _, err := browserCommandLookPath(provider); err == nil {
+			return startBrowserProcess(provider, target)
+		}
+	}
+	return &exec.Error{Name: strings.Join(providers, ","), Err: exec.ErrNotFound}
+}
+
+func startBrowserCommand(command string, args ...string) error {
+	cmd := newBrowserCommand(command, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- cmd.Wait()
+	}()
+
+	timer := time.NewTimer(browserStartTimeout)
+	defer timer.Stop()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-timer.C:
+		return nil
 	}
 }
 
