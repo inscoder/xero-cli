@@ -5,7 +5,7 @@
 ## Behavior
 
 - generates a PKCE verifier and `state`
-- listens on `localhost:3000`
+- listens on `localhost:3000` and accepts both IPv4 and IPv6 loopback traffic when available
 - opens the system browser to Xero login
 - validates `state` on callback before exchanging the code
 - stores tokens in `~/.config/xero/tokens.json` with `0600` permissions for MVP

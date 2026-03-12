@@ -6,13 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	appconfig "github.com/inscoder/xero-cli/internal/config"
@@ -139,11 +142,11 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 	if err != nil {
 		return LoginResult{}, clierrors.Wrap(clierrors.KindValidation, "parse configured OAuth redirect URL", err)
 	}
-	listener, err := net.Listen("tcp", a.listenAddress)
+	listeners, err := listenLoopback(a.listenAddress)
 	if err != nil {
 		return LoginResult{}, clierrors.Wrap(clierrors.KindNetwork, fmt.Sprintf("start OAuth callback listener on %s", a.listenAddress), err)
 	}
-	defer listener.Close()
+	defer closeListeners(listeners)
 
 	authURL := buildAuthorizeURL(a.authorizeURL, a.settings.ClientID, a.redirectURL, a.settings.XeroScopes, state, codeVerifier)
 
@@ -167,11 +170,13 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 		resultCh <- values
 	})}
 
-	go func() {
-		if serveErr := server.Serve(listener); serveErr != nil && serveErr != http.ErrServerClosed {
-			errCh <- clierrors.Wrap(clierrors.KindNetwork, "serve OAuth callback", serveErr)
-		}
-	}()
+	for _, listener := range listeners {
+		go func(listener net.Listener) {
+			if serveErr := server.Serve(listener); serveErr != nil && serveErr != http.ErrServerClosed {
+				errCh <- clierrors.Wrap(clierrors.KindNetwork, "serve OAuth callback", serveErr)
+			}
+		}(listener)
+	}
 	defer server.Shutdown(context.Background())
 
 	if err := a.openBrowser(authURL); err != nil {
@@ -421,4 +426,52 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func listenLoopback(address string) ([]net.Listener, error) {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(host, "localhost") {
+		listener, listenErr := net.Listen("tcp", address)
+		if listenErr != nil {
+			return nil, listenErr
+		}
+		return []net.Listener{listener}, nil
+	}
+
+	portNumber, err := strconv.Atoi(port)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := []string{
+		net.JoinHostPort("127.0.0.1", strconv.Itoa(portNumber)),
+		net.JoinHostPort("::1", strconv.Itoa(portNumber)),
+	}
+	listeners := make([]net.Listener, 0, len(addresses))
+	var errs []string
+	for _, candidate := range addresses {
+		listener, listenErr := net.Listen("tcp", candidate)
+		if listenErr != nil {
+			if errors.Is(listenErr, syscall.EADDRINUSE) {
+				closeListeners(listeners)
+				return nil, listenErr
+			}
+			errs = append(errs, listenErr.Error())
+			continue
+		}
+		listeners = append(listeners, listener)
+	}
+	if len(listeners) == 0 {
+		return nil, errors.New(strings.Join(errs, "; "))
+	}
+	return listeners, nil
+}
+
+func closeListeners(listeners []net.Listener) {
+	for _, listener := range listeners {
+		_ = listener.Close()
+	}
 }

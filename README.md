@@ -62,7 +62,7 @@ You must set scopes explicitly with `XERO_AUTH_SCOPES` or add a `scopes` array t
 
 ## Auth flow
 
-`xero auth login` starts a local OAuth callback on `http://localhost:3000/callback`, opens the system browser, exchanges the authorization code using PKCE S256, discovers available tenants, and persists the chosen default tenant for later commands.
+`xero auth login` starts a local OAuth callback on `http://localhost:3000/callback`, opens the system browser, exchanges the authorization code using PKCE S256, and listens on both IPv4 and IPv6 loopback addresses when available before persisting the chosen default tenant for later commands.
 
 Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes only when the token is older than 25 minutes.
 
