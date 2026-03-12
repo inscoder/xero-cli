@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,12 @@ import (
 	appconfig "github.com/inscoder/xero-cli/internal/config"
 	clierrors "github.com/inscoder/xero-cli/internal/errors"
 	"github.com/pkg/browser"
+)
+
+var (
+	browserCommandLookPath = exec.LookPath
+	startBrowserProcess    = startBrowserCommand
+	linuxBrowserCommands   = []string{"xdg-open", "x-www-browser", "www-browser"}
 )
 
 const (
@@ -115,13 +122,35 @@ func NewBrowserAuthWithOptions(settings appconfig.Settings, store TokenStore, te
 }
 
 func openBrowser(command string) func(string) error {
-	if strings.TrimSpace(command) == "" {
-		return browser.OpenURL
+	command = strings.TrimSpace(command)
+	if command != "" {
+		return func(target string) error {
+			return startBrowserProcess(command, target)
+		}
 	}
-	return func(target string) error {
-		cmd := exec.Command(command, target)
-		return cmd.Start()
+	if runtime.GOOS == "linux" {
+		return func(target string) error {
+			return openBrowserWithProviders(target, linuxBrowserCommands)
+		}
 	}
+	return browser.OpenURL
+}
+
+func openBrowserWithProviders(target string, providers []string) error {
+	for _, provider := range providers {
+		if _, err := browserCommandLookPath(provider); err == nil {
+			return startBrowserProcess(provider, target)
+		}
+	}
+	return &exec.Error{Name: strings.Join(providers, ","), Err: exec.ErrNotFound}
+}
+
+func startBrowserCommand(command string, args ...string) error {
+	cmd := exec.Command(command, args...)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {

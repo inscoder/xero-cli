@@ -53,7 +53,7 @@ export XERO_AUTH_CLIENT_ID="your-client-id"
 export XERO_AUTH_CLIENT_SECRET="your-client-secret"
 export XERO_AUTH_SCOPES="openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read accounting.reports.read"
 export XERO_TENANT="your-default-tenant-id"
-export XERO_AUTH_OPEN_COMMAND="open"
+export XERO_AUTH_OPEN_COMMAND="xdg-open" # Linux; use "open" on macOS
 ```
 
 You can also copy `.env.example` to `.env` for local development.

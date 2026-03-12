@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 
 	"github.com/inscoder/xero-cli/internal/output"
 	"github.com/spf13/cobra"
@@ -61,5 +62,12 @@ func checkValue(name string, ok bool, detail string) output.DoctorCheck {
 }
 
 func defaultBrowserCommand() string {
-	return "open"
+	switch runtime.GOOS {
+	case "linux":
+		return "xdg-open"
+	case "darwin":
+		return "open"
+	default:
+		return ""
+	}
 }
