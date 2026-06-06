@@ -10,7 +10,7 @@ xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "Updated
 xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
-xero invoices --where 'Type=="ACCPAY" AND AmountDue>=5000'
+xero invoices --where 'AmountDue>=5000'
 xero invoices -p my-company --json
 ```
 
@@ -20,10 +20,10 @@ xero invoices -p my-company --json
 - `--invoice-id <uuid[,uuid...]>`: filter by one or more invoice IDs; repeatable and comma-separated
 - `--status <status[,status...]>`: filter by one or more statuses; repeatable and comma-separated
 - `--since <YYYY-MM-DD>`: filter recent invoices
-- `--where <clause>`: advanced Xero `where` clause for optimized fields such as `Type`, `Date`, `DueDate`, `AmountDue`, and exact contact matching
+- `--where <clause>`: advanced Xero `where` clause for optimized fields such as `Date`, `DueDate`, `AmountDue`, and exact contact matching
 - `--order "<Field> <ASC|DESC>"`: custom ordering, defaults to `UpdatedDateUTC DESC`
-- `--page <n>`: explicit page number
-- `--page-size <n>`: API page size; requires `--page`
+- `--page <n>`: explicit page number, defaults to `1`
+- `--page-size <n>`: API page size, using page `1` unless `--page` is provided
 - `--json`: emit the JSON envelope
 - `--quiet`: emit raw `data` only
 - `--no-browser`: fail instead of opening a browser when auth is required
@@ -32,8 +32,10 @@ xero invoices -p my-company --json
 
 - The selected Xero tenant is stored with the active profile token during `xero login`.
 - There is no temporary tenant override. Use `-p, --profile` to select a different logged-in organisation.
-- `--page-size` maps directly to Xero's `pageSize` query parameter and is only valid when `--page` is present.
-- `--where` is passed through directly to Xero, so quote it in your shell.
+- `--page-size` maps directly to Xero's `pageSize` query parameter and uses the default first page unless `--page` is present.
+- Without paging flags, the CLI requests page `1` from Xero to avoid unbounded invoice retrieval.
+- `xero invoices` lists sales invoices (`Type=="ACCREC"`). Use `xero bills` for purchase bills (`Type=="ACCPAY"`).
+- `--where` is combined with the command's invoice type and passed to Xero, so quote it in your shell. Do not include `Type` in `--where`.
 - Invoice `url` in list output is not the customer-facing online invoice URL; use `xero invoices online-url` for that workflow.
 
 ## `xero invoices approve`

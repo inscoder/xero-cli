@@ -1,6 +1,6 @@
 # xero
 
-`xero` is a terminal-first Go CLI for Xero with browser OAuth, named profiles, encrypted token storage, invoice listing, invoice approval, invoice PDF download, and online invoice URL lookup.
+`xero` is a terminal-first Go CLI for Xero with browser OAuth, named profiles, encrypted token storage, invoice and bill listing, invoice approval, invoice PDF download, and online invoice URL lookup.
 
 ## Install
 
@@ -32,6 +32,7 @@ xero logout
 xero version
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
+xero bills --status AUTHORISED --where 'AmountDue>=5000'
 xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
@@ -101,6 +102,10 @@ Machine-readable contract examples:
 }
 ```
 
+`xero invoices` lists sales invoices (`ACCREC`) and `xero bills` lists purchase bills (`ACCPAY`). Both commands call Xero's `GET /Invoices` endpoint and apply the correct Xero `Type` filter automatically.
+
+Invoice and bill listing requests default to `page=1` so commands do not ask Xero for an unbounded result set. Use `--page` and `--page-size` to control pagination explicitly.
+
 `xero invoices online-url` uses Xero's dedicated online-invoice endpoint. It does not reuse the invoice `url` field returned by `xero invoices`, because Xero documents that field as a source-document link inside Xero rather than the customer-facing online invoice URL.
 
 `xero invoices approve` is the first invoice write command. It approves exactly one invoice by setting its status to `AUTHORISED`, includes the resolved tenant in structured output, and is intended for explicit single-resource use. Required Xero scopes are `accounting.transactions` for legacy apps or `accounting.invoices` for granular-scope apps.
@@ -114,7 +119,7 @@ go test ./...
 go test ./test/output -run TestWriteJSONEnvelopeContract
 ```
 
-See `docs/auth.md`, `docs/commands/invoices.md`, and `docs/development/testing.md` for more detail.
+See `docs/auth.md`, `docs/commands/invoices.md`, `docs/commands/bills.md`, and `docs/development/testing.md` for more detail.
 
 ## Releasing
 
