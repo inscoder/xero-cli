@@ -78,7 +78,7 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tenant, err := rt.Tenants.Resolve(firstNonEmpty(request.TenantID, rt.Settings.TenantOverride), rt.SessionMeta.KnownTenants)
+			tenant, err := rt.Tenants.ResolveTokenTenant(token)
 			if err != nil {
 				return err
 			}
@@ -90,7 +90,7 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 				return err
 			}
 			summary := xeroapi.NewRequestSummary(len(invoices))
-			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: fmt.Sprintf("xero invoices --tenant %s --json", tenant.ID)}}
+			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices --json"}}
 			return rt.WriteData(invoices, summary, breadcrumbs, func(w io.Writer) error {
 				return output.WriteInvoices(w, invoices, summary, breadcrumbs)
 			})

@@ -9,17 +9,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-func newAuthCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
-	cmd := &cobra.Command{Use: "auth", Short: "Authentication commands"}
-	cmd.AddCommand(newAuthLoginCommand(deps, v), newAuthStatusCommand(deps, v), newAuthLogoutCommand(deps, v))
-	return cmd
-}
-
-func newAuthLoginCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
+func newLoginCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate with Xero in the browser",
+		Short: "Log in to Xero via browser",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			applyClientIDFlag(cmd, v)
 			rt, err := loadRuntime(deps, v)
 			if err != nil {
 				return err
@@ -30,22 +25,23 @@ func newAuthLoginCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := rt.Config.PersistAuthCredentials(rt.Settings.ClientID, rt.Settings.ClientSecret); err != nil {
-				return err
-			}
 			data := map[string]any{
+				"profile":       rt.Settings.ProfileName,
 				"authMode":      result.Token.AuthMode,
 				"generatedAt":   result.Token.GeneratedAt,
 				"expiresAt":     result.Token.ExpiresAt,
 				"defaultTenant": result.Default,
 				"tenantCount":   len(result.Tenants),
 			}
-			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero auth status --json"}, {Action: "show", Cmd: "xero invoices --json"}}
+			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices --json"}}
 			return rt.WriteData(data, fmt.Sprintf("Logged in to %d tenant(s)", len(result.Tenants)), breadcrumbs, func(w io.Writer) error {
-				_, err := fmt.Fprintf(w, "Authenticated with Xero. Default tenant: %s (%s)\n", result.Default.Name, result.Default.ID)
+				_, err := fmt.Fprintf(w, "Authenticated profile %s with Xero. Tenant: %s (%s)\n", rt.Settings.ProfileName, result.Default.Name, result.Default.ID)
 				return err
 			})
 		},
 	}
+	cmd.Flags().String("scope", "", "Override OAuth scopes (space-separated; required OAuth scopes are auto-prepended)")
+	addClientIDFlag(cmd)
+	mustBind(v, "auth.scopes", cmd.Flags().Lookup("scope"))
 	return cmd
 }

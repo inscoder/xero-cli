@@ -134,20 +134,18 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().String("config", "", "config file path")
 	root.PersistentFlags().Bool("json", false, "emit JSON envelope on stdout")
 	root.PersistentFlags().Bool("quiet", false, "emit raw data only on stdout")
-	root.PersistentFlags().String("tenant", "", "override tenant ID")
+	root.PersistentFlags().StringP("profile", "p", "", "Xero profile name")
 	root.PersistentFlags().Bool("no-browser", false, "fail instead of opening a browser")
-	root.PersistentFlags().String("client-id", "", "Xero OAuth client ID")
-	root.PersistentFlags().String("client-secret", "", "Xero OAuth client secret")
 
 	mustBind(v, "config", root.PersistentFlags().Lookup("config"))
 	mustBind(v, "output.json", root.PersistentFlags().Lookup("json"))
 	mustBind(v, "output.quiet", root.PersistentFlags().Lookup("quiet"))
-	mustBind(v, "tenant", root.PersistentFlags().Lookup("tenant"))
+	mustBind(v, "profile", root.PersistentFlags().Lookup("profile"))
 	mustBind(v, "auth.no_browser", root.PersistentFlags().Lookup("no-browser"))
-	mustBind(v, "auth.client_id", root.PersistentFlags().Lookup("client-id"))
-	mustBind(v, "auth.client_secret", root.PersistentFlags().Lookup("client-secret"))
 
-	root.AddCommand(newAuthCommand(deps, v))
+	root.AddCommand(newLoginCommand(deps, v))
+	root.AddCommand(newLogoutCommand(deps, v))
+	root.AddCommand(newProfileCommand(deps, v))
 	root.AddCommand(newInvoicesCommand(deps, v))
 	root.AddCommand(newDoctorCommand(deps, v))
 	root.AddCommand(newVersionCommand(deps))
@@ -198,6 +196,17 @@ func mustBind(v *viper.Viper, key string, flag *pflag.Flag) {
 		return
 	}
 	_ = v.BindPFlag(key, flag)
+}
+
+func addClientIDFlag(cmd *cobra.Command) {
+	cmd.Flags().String("client-id", "", "Xero OAuth client ID")
+}
+
+func applyClientIDFlag(cmd *cobra.Command, v *viper.Viper) {
+	flag := cmd.Flag("client-id")
+	if flag != nil && flag.Changed {
+		v.Set("client_id", flag.Value.String())
+	}
 }
 
 func loadRuntime(deps Dependencies, v *viper.Viper) (*Runtime, error) {
@@ -251,7 +260,7 @@ func (rt *Runtime) LoadToken() (auth.TokenSet, error) {
 	token, err := rt.Tokens.Load()
 	if err != nil {
 		if errors.Is(err, auth.ErrTokenNotFound) {
-			return auth.TokenSet{}, clierrors.New(clierrors.KindAuthRequired, "no saved Xero session; run `xero auth login`")
+			return auth.TokenSet{}, clierrors.New(clierrors.KindAuthRequired, "no saved Xero session for the active profile; run `xero login`")
 		}
 		return auth.TokenSet{}, err
 	}

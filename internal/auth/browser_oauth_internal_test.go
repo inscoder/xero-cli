@@ -42,14 +42,14 @@ func TestOpenBrowserUsesConfiguredCommand(t *testing.T) {
 		if command != "xdg-open" {
 			t.Fatalf("expected configured command, got %q", command)
 		}
-		if len(args) != 1 || args[0] != "http://localhost:3000/callback" {
+		if len(args) != 1 || args[0] != "http://localhost:8742/callback" {
 			t.Fatalf("unexpected args: %#v", args)
 		}
 		return nil
 	}
 	t.Cleanup(func() { startBrowserProcess = originalStart })
 
-	if err := openBrowser(" xdg-open ")("http://localhost:3000/callback"); err != nil {
+	if err := openBrowser(" xdg-open ")("http://localhost:8742/callback"); err != nil {
 		t.Fatalf("open browser with configured command: %v", err)
 	}
 }

@@ -13,7 +13,7 @@ import (
 )
 
 func newDoctorCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate local config and auth prerequisites",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -23,12 +23,11 @@ func newDoctorCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			}
 			checks := []output.DoctorCheck{
 				checkFile("config", rt.Settings.ConfigFilePath),
-				checkFile("auth", rt.Settings.AuthFilePath),
 				checkFile("tokens", rt.Tokens.FallbackPath()),
 				checkBrowserCommand(rt.LookPath, rt.Settings.OpenCommand),
+				checkValue("profile", rt.Settings.ProfileName != "", firstNonEmpty(rt.Settings.ProfileName, "not configured")),
 				checkValue("client-id", rt.Settings.ClientID != "", "OAuth client ID available"),
-				checkValue("client-secret", rt.Settings.ClientSecret != "", "OAuth client secret available"),
-				checkValue("default-tenant", rt.Settings.DefaultTenantID != "", firstNonEmpty(rt.Settings.DefaultTenantName, rt.Settings.DefaultTenantID)),
+				checkValue("tenant", rt.SessionMeta.DefaultTenant.ID != "", firstNonEmpty(rt.SessionMeta.DefaultTenant.Name, rt.SessionMeta.DefaultTenant.ID)),
 				checkValue("token-storage", true, rt.Tokens.StorageMode()),
 				checkValue("known-tenants", len(rt.SessionMeta.KnownTenants) > 0, fmt.Sprintf("%d discovered", len(rt.SessionMeta.KnownTenants))),
 			}
@@ -37,6 +36,7 @@ func newDoctorCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			})
 		},
 	}
+	return cmd
 }
 
 func checkFile(name, path string) output.DoctorCheck {

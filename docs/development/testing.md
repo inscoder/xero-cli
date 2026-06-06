@@ -11,8 +11,8 @@ go test ./test/auth ./test/commands ./test/output ./test/integration
 
 - auth state parsing and corrupt-state handling
 - config precedence across flags, env, and persisted config
-- tenant resolution and revoked-tenant handling
-- refresh gating above and below the 25-minute threshold
+- profile resolution, encrypted token storage, and tenant metadata stored with profile tokens
+- refresh gating around token `expiresAt` and the one-minute refresh buffer
 - JSON contract stability for `--json` and `--quiet`
 - invoice command integration across token refresh and direct Xero API invocation
 

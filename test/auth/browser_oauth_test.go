@@ -55,7 +55,7 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", tempDir+"/config.json")
-	v.Set("auth.client_id", "client-123")
+	v.Set("client_id", "client-123")
 	v.Set("auth.scopes", []string{"openid", "profile", "email"})
 	v.Set("auth.callback_timeout", "10s")
 	manager, err := appconfig.NewManager(v)
@@ -99,7 +99,7 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load saved token: %v", err)
 	}
-	if token.AccessToken != "access-123" || token.GeneratedAt != fixedNow {
+	if token.AccessToken != "access-123" || token.GeneratedAt != fixedNow || token.TenantID != "tenant-1" {
 		t.Fatalf("unexpected saved token: %+v", token)
 	}
 	meta, err := sessionStore.Load()
@@ -109,8 +109,8 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	if len(meta.KnownTenants) != 1 || meta.KnownTenants[0].ID != "tenant-1" {
 		t.Fatalf("unexpected session tenants: %+v", meta.KnownTenants)
 	}
-	if manager.LoadedConfig().DefaultTenantID != "tenant-1" {
-		t.Fatalf("expected config default tenant to persist, got %+v", manager.LoadedConfig())
+	if meta.DefaultTenant.ID != "tenant-1" {
+		t.Fatalf("expected session tenant to persist, got %+v", meta.DefaultTenant)
 	}
 }
 
@@ -124,16 +124,20 @@ func freePort(t *testing.T) int {
 	return listener.Addr().(*net.TCPAddr).Port
 }
 
-func TestShouldRefreshUsesGeneratedAtThreshold(t *testing.T) {
+func TestShouldRefreshUsesExpiresAtBuffer(t *testing.T) {
 	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
-	under := auth.TokenSet{GeneratedAt: now.Add(-24 * time.Minute)}
-	over := auth.TokenSet{GeneratedAt: now.Add(-26 * time.Minute)}
+	fresh := auth.TokenSet{ExpiresAt: now.Add(2 * time.Minute)}
+	nearExpiry := auth.TokenSet{ExpiresAt: now.Add(30 * time.Second)}
+	expired := auth.TokenSet{ExpiresAt: now.Add(-1 * time.Second)}
 
-	if auth.ShouldRefresh(under, now, 25*time.Minute) {
-		t.Fatal("expected token younger than threshold to skip refresh")
+	if auth.ShouldRefresh(fresh, now, time.Minute) {
+		t.Fatal("expected token outside refresh buffer to skip refresh")
 	}
-	if !auth.ShouldRefresh(over, now, 25*time.Minute) {
-		t.Fatal("expected token older than threshold to refresh")
+	if !auth.ShouldRefresh(nearExpiry, now, time.Minute) {
+		t.Fatal("expected token inside refresh buffer to refresh")
+	}
+	if !auth.ShouldRefresh(expired, now, time.Minute) {
+		t.Fatal("expected expired token to refresh")
 	}
 }
 
@@ -149,7 +153,7 @@ func TestSessionStoreRejectsCorruptJSON(t *testing.T) {
 	}
 }
 
-func TestTenantResolveDetectsRevokedSavedTenant(t *testing.T) {
+func TestTenantResolveTokenRequiresSelectedTenant(t *testing.T) {
 	tempDir := t.TempDir()
 	v := viper.New()
 	appconfig.ConfigureViper(v)
@@ -161,11 +165,8 @@ func TestTenantResolveDetectsRevokedSavedTenant(t *testing.T) {
 	if _, err := manager.Load(false, "test"); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update tenant: %v", err)
-	}
 	tenantStore := auth.NewTenantStore(manager, auth.NewSessionStore(tempDir+"/session.json"), strings.NewReader(""), io.Discard)
-	_, err = tenantStore.Resolve("", []auth.Tenant{{ID: "tenant-2", Name: "Other"}})
+	_, err = tenantStore.ResolveTokenTenant(auth.TokenSet{})
 	if clierrors.KindOf(err) != clierrors.KindTenantSelectionRequired {
 		t.Fatalf("expected tenant selection required error, got %v", err)
 	}
