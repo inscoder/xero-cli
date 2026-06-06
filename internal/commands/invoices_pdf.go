@@ -59,7 +59,7 @@ func newInvoicesPDFCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 				return err
 			}
 
-			tenant, err := rt.Tenants.Resolve(firstNonEmpty(request.TenantID, rt.Settings.TenantOverride), rt.SessionMeta.KnownTenants)
+			tenant, err := rt.Tenants.ResolveTokenTenant(token)
 			if err != nil {
 				return err
 			}
@@ -86,7 +86,7 @@ func newInvoicesPDFCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			summary := "invoice PDF saved"
 			breadcrumbs := []output.Breadcrumb{{
 				Action: "show",
-				Cmd:    fmt.Sprintf("xero invoices pdf --invoice-id %s --output %s --tenant %s --json", result.InvoiceID, strconv.Quote(result.SavedTo), tenant.ID),
+				Cmd:    fmt.Sprintf("xero invoices pdf --invoice-id %s --output %s --json", result.InvoiceID, strconv.Quote(result.SavedTo)),
 			}}
 
 			return rt.WriteData(result, summary, breadcrumbs, func(w io.Writer) error {

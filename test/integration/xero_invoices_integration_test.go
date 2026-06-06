@@ -51,6 +51,7 @@ func TestInvoicesIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", configPath)
+	v.Set("client_id", "client-id")
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -59,12 +60,9 @@ func TestInvoicesIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update tenant: %v", err)
-	}
 
 	tokens := auth.NewTokenStore(settings)
-	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth"}
+	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth", TenantID: "tenant-1", TenantName: "Acme"}
 	if err := tokens.Save(oldToken); err != nil {
 		t.Fatalf("save old token: %v", err)
 	}
@@ -148,6 +146,7 @@ func TestInvoicesOnlineURLIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", configPath)
+	v.Set("client_id", "client-id")
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -156,12 +155,9 @@ func TestInvoicesOnlineURLIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update tenant: %v", err)
-	}
 
 	tokens := auth.NewTokenStore(settings)
-	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth"}
+	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth", TenantID: "tenant-1", TenantName: "Acme"}
 	if err := tokens.Save(oldToken); err != nil {
 		t.Fatalf("save old token: %v", err)
 	}
@@ -246,6 +242,7 @@ func TestInvoicesPDFIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", configPath)
+	v.Set("client_id", "client-id")
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -254,12 +251,9 @@ func TestInvoicesPDFIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update tenant: %v", err)
-	}
 
 	tokens := auth.NewTokenStore(settings)
-	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth"}
+	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth", TenantID: "tenant-1", TenantName: "Acme"}
 	if err := tokens.Save(oldToken); err != nil {
 		t.Fatalf("save old token: %v", err)
 	}
@@ -358,6 +352,7 @@ func TestInvoicesApproveIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", configPath)
+	v.Set("client_id", "client-id")
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
 		t.Fatalf("new manager: %v", err)
@@ -366,12 +361,9 @@ func TestInvoicesApproveIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update tenant: %v", err)
-	}
 
 	tokens := auth.NewTokenStore(settings)
-	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth"}
+	oldToken := auth.TokenSet{AccessToken: "stale-token", RefreshToken: "refresh-token", GeneratedAt: time.Date(2026, 3, 10, 11, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 11, 30, 0, 0, time.UTC), AuthMode: "browser_oauth", TenantID: "tenant-1", TenantName: "Acme"}
 	if err := tokens.Save(oldToken); err != nil {
 		t.Fatalf("save old token: %v", err)
 	}

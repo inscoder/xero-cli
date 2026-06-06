@@ -27,6 +27,8 @@ type SessionMetadata struct {
 	ExpiresAt        time.Time `json:"expiresAt,omitempty"`
 	LastRefreshAt    time.Time `json:"lastRefreshAt,omitempty"`
 	KnownTenants     []Tenant  `json:"knownTenants,omitempty"`
+	DefaultTenant    Tenant    `json:"defaultTenant,omitempty"`
+	ProfileName      string    `json:"profileName,omitempty"`
 	StorageMode      string    `json:"storageMode,omitempty"`
 	LastError        string    `json:"lastError,omitempty"`
 	FallbackFilePath string    `json:"fallbackFilePath,omitempty"`
@@ -95,10 +97,7 @@ func NewTenantStore(cfg *appconfig.Manager, session *SessionStore, in io.Reader,
 func (s *TenantStore) Resolve(override string, known []Tenant) (Tenant, error) {
 	selected := strings.TrimSpace(override)
 	if selected == "" {
-		selected = strings.TrimSpace(s.config.LoadedConfig().DefaultTenantID)
-	}
-	if selected == "" {
-		return Tenant{}, clierrors.New(clierrors.KindTenantSelectionRequired, "no default tenant selected; run `xero auth login` or pass --tenant")
+		return Tenant{}, clierrors.New(clierrors.KindTenantSelectionRequired, "no tenant selected; run `xero login` for the active profile")
 	}
 	for _, tenant := range known {
 		if tenant.ID == selected {
@@ -106,9 +105,16 @@ func (s *TenantStore) Resolve(override string, known []Tenant) (Tenant, error) {
 		}
 	}
 	if len(known) > 0 {
-		return Tenant{}, clierrors.New(clierrors.KindTenantSelectionRequired, "saved tenant is no longer available; run `xero auth login` to choose a new default tenant")
+		return Tenant{}, clierrors.New(clierrors.KindTenantSelectionRequired, "saved tenant is no longer available; run `xero login` for the active profile")
 	}
 	return Tenant{ID: selected, Name: selected}, nil
+}
+
+func (s *TenantStore) ResolveTokenTenant(token TokenSet) (Tenant, error) {
+	if strings.TrimSpace(token.TenantID) == "" {
+		return Tenant{}, clierrors.New(clierrors.KindTenantSelectionRequired, "active profile has no selected Xero tenant; run `xero login`")
+	}
+	return Tenant{ID: token.TenantID, Name: token.TenantName, Type: token.TenantType}, nil
 }
 
 func (s *TenantStore) ChooseDefault(interactive bool, tenants []Tenant) (Tenant, error) {
@@ -143,17 +149,15 @@ func (s *TenantStore) ChooseDefault(interactive bool, tenants []Tenant) (Tenant,
 	}
 }
 
-func (s *TenantStore) PersistDefault(tenant Tenant) error {
-	return s.config.UpdateDefaultTenant(tenant.ID, tenant.Name)
-}
-
-func (s *TenantStore) SaveSession(token TokenSet, tenants []Tenant, storageMode, fallbackPath string) error {
+func (s *TenantStore) SaveSession(profileName string, token TokenSet, tenants []Tenant, storageMode, fallbackPath string) error {
 	meta := SessionMetadata{
 		Authenticated:    true,
 		AuthMode:         token.AuthMode,
 		GeneratedAt:      token.GeneratedAt,
 		ExpiresAt:        token.ExpiresAt,
 		KnownTenants:     tenants,
+		DefaultTenant:    Tenant{ID: token.TenantID, Name: token.TenantName, Type: token.TenantType},
+		ProfileName:      profileName,
 		StorageMode:      storageMode,
 		FallbackFilePath: fallbackPath,
 	}
@@ -170,6 +174,7 @@ func (s *TenantStore) UpdateRefreshState(token TokenSet, known []Tenant, storage
 	meta.GeneratedAt = token.GeneratedAt
 	meta.ExpiresAt = token.ExpiresAt
 	meta.LastRefreshAt = time.Now().UTC()
+	meta.DefaultTenant = Tenant{ID: token.TenantID, Name: token.TenantName, Type: token.TenantType}
 	meta.StorageMode = storageMode
 	meta.FallbackFilePath = fallbackPath
 	if len(known) > 0 {

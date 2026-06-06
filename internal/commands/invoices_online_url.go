@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"fmt"
 	"io"
 
 	"github.com/inscoder/xero-cli/internal/output"
@@ -37,7 +36,7 @@ func newInvoicesOnlineURLCommand(deps Dependencies, v *viper.Viper) *cobra.Comma
 				return err
 			}
 
-			tenant, err := rt.Tenants.Resolve(firstNonEmpty(request.TenantID, rt.Settings.TenantOverride), rt.SessionMeta.KnownTenants)
+			tenant, err := rt.Tenants.ResolveTokenTenant(token)
 			if err != nil {
 				return err
 			}
@@ -58,10 +57,7 @@ func newInvoicesOnlineURLCommand(deps Dependencies, v *viper.Viper) *cobra.Comma
 				summary = "online invoice URL available"
 			}
 
-			breadcrumbs := []output.Breadcrumb{{
-				Action: "show",
-				Cmd:    fmt.Sprintf("xero invoices online-url --invoice-id %s --tenant %s --json", result.InvoiceID, tenant.ID),
-			}}
+			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices online-url --json"}}
 
 			return rt.WriteData(result, summary, breadcrumbs, func(w io.Writer) error {
 				return output.WriteOnlineInvoiceURL(w, result)

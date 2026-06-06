@@ -36,8 +36,8 @@ const (
 	authorizeEndpoint = "https://login.xero.com/identity/connect/authorize"
 	tokenEndpoint     = "https://identity.xero.com/connect/token"
 	connectionsURL    = "https://api.xero.com/connections"
-	redirectURL       = "http://localhost:3000/callback"
-	listenAddress     = "localhost:3000"
+	redirectURL       = "http://localhost:8742/callback"
+	listenAddress     = "localhost:8742"
 )
 
 type BrowserAuth struct {
@@ -259,7 +259,7 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 }
 
 func (a *BrowserAuth) EnsureFreshToken(ctx context.Context, token TokenSet, interactive bool) (TokenSet, bool, error) {
-	if !ShouldRefresh(token, a.now(), a.settings.RefreshAfter) {
+	if !ShouldRefresh(token, a.now(), a.settings.RefreshBefore) {
 		return token, false, nil
 	}
 	refreshed, err := a.refreshToken(ctx, token)
@@ -279,11 +279,11 @@ func (a *BrowserAuth) EnsureFreshToken(ctx context.Context, token TokenSet, inte
 	return TokenSet{}, false, clierrors.Wrap(clierrors.KindTokenRefreshFailed, "token refresh failed", err)
 }
 
-func ShouldRefresh(token TokenSet, now time.Time, threshold time.Duration) bool {
-	if token.GeneratedAt.IsZero() {
+func ShouldRefresh(token TokenSet, now time.Time, refreshBefore time.Duration) bool {
+	if token.ExpiresAt.IsZero() {
 		return true
 	}
-	return now.Sub(token.GeneratedAt) > threshold
+	return !now.Before(token.ExpiresAt.Add(-refreshBefore))
 }
 
 func buildAuthorizeURL(baseURL, clientID, redirectURI string, scopes []string, state, verifier string) string {
@@ -336,9 +336,6 @@ func (a *BrowserAuth) finishLogin(ctx context.Context, redirectURL, verifier, co
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if err := a.store.Save(token); err != nil {
-		return LoginResult{}, err
-	}
 	tenants, err := a.fetchTenants(ctx, token.AccessToken)
 	if err != nil {
 		return LoginResult{}, err
@@ -347,10 +344,13 @@ func (a *BrowserAuth) finishLogin(ctx context.Context, redirectURL, verifier, co
 	if err != nil {
 		return LoginResult{}, err
 	}
-	if err := a.tenantStore.PersistDefault(selected); err != nil {
+	token.TenantID = selected.ID
+	token.TenantName = selected.Name
+	token.TenantType = selected.Type
+	if err := a.store.Save(token); err != nil {
 		return LoginResult{}, err
 	}
-	if err := a.tenantStore.SaveSession(token, tenants, a.store.StorageMode(), a.store.FallbackPath()); err != nil {
+	if err := a.tenantStore.SaveSession(a.settings.ProfileName, token, tenants, a.store.StorageMode(), a.store.FallbackPath()); err != nil {
 		return LoginResult{}, err
 	}
 	return LoginResult{Token: token, Tenants: tenants, Default: selected}, nil
@@ -363,9 +363,6 @@ func (a *BrowserAuth) exchangeCode(ctx context.Context, redirectURL, verifier, c
 	form.Set("code", code)
 	form.Set("redirect_uri", redirectURL)
 	form.Set("code_verifier", verifier)
-	if strings.TrimSpace(a.settings.ClientSecret) != "" {
-		form.Set("client_secret", a.settings.ClientSecret)
-	}
 	resp, err := a.tokenRequest(ctx, form)
 	if err != nil {
 		return TokenSet{}, err
@@ -381,9 +378,6 @@ func (a *BrowserAuth) refreshToken(ctx context.Context, token TokenSet) (TokenSe
 	form.Set("grant_type", "refresh_token")
 	form.Set("client_id", a.settings.ClientID)
 	form.Set("refresh_token", token.RefreshToken)
-	if strings.TrimSpace(a.settings.ClientSecret) != "" {
-		form.Set("client_secret", a.settings.ClientSecret)
-	}
 	resp, err := a.tokenRequest(ctx, form)
 	if err != nil {
 		return TokenSet{}, err
@@ -392,6 +386,9 @@ func (a *BrowserAuth) refreshToken(ctx context.Context, token TokenSet) (TokenSe
 	if refreshed.RefreshToken == "" {
 		refreshed.RefreshToken = token.RefreshToken
 	}
+	refreshed.TenantID = token.TenantID
+	refreshed.TenantName = token.TenantName
+	refreshed.TenantType = token.TenantType
 	return refreshed, nil
 }
 
@@ -427,13 +424,17 @@ func (a *BrowserAuth) tokenRequest(ctx context.Context, form url.Values) (tokenR
 
 func (a *BrowserAuth) tokenSetFromResponse(resp tokenResponse) TokenSet {
 	generatedAt := a.now()
+	expiresIn := resp.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 1800
+	}
 	return TokenSet{
 		AccessToken:  resp.AccessToken,
 		RefreshToken: resp.RefreshToken,
 		TokenType:    resp.TokenType,
 		Scope:        resp.Scope,
 		GeneratedAt:  generatedAt,
-		ExpiresAt:    generatedAt.Add(time.Duration(resp.ExpiresIn) * time.Second),
+		ExpiresAt:    generatedAt.Add(time.Duration(expiresIn) * time.Second),
 		AuthMode:     "browser_oauth",
 	}
 }

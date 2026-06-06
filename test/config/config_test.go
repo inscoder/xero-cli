@@ -9,20 +9,18 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestLoadAppliesFlagEnvThenPersistedConfigPrecedence(t *testing.T) {
+func TestLoadResolvesInlineClientIDBeforeProfile(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
-	if err := os.WriteFile(configPath, []byte("{\n  \"defaultTenantId\": \"tenant-file\",\n  \"defaultTenantName\": \"File Tenant\",\n  \"outputMode\": \"json\",\n  \"scopes\": [\"accounting.settings.read\"]\n}\n"), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte("{\n  \"defaultProfile\": \"file\",\n  \"profiles\": {\n    \"file\": {\"clientId\": \"client-from-profile\"}\n  },\n  \"outputMode\": \"json\"\n}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	t.Setenv("XERO_AUTH_CLIENT_ID", "client-from-env")
-	t.Setenv("XERO_TENANT", "tenant-from-env")
-	t.Setenv("XERO_AUTH_SCOPES", "openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read accounting.reports.read")
+	t.Setenv("XERO_CLIENT_ID", "client-from-env")
+	t.Setenv("XERO_SCOPES", "accounting.invoices.read accounting.contacts.read")
 
 	v := viper.New()
 	appconfig.ConfigureViper(v)
 	v.Set("config", configPath)
-	v.Set("tenant", "tenant-from-flag")
 
 	manager, err := appconfig.NewManager(v)
 	if err != nil {
@@ -33,27 +31,24 @@ func TestLoadAppliesFlagEnvThenPersistedConfigPrecedence(t *testing.T) {
 		t.Fatalf("load settings: %v", err)
 	}
 
-	if settings.TenantOverride != "tenant-from-flag" {
-		t.Fatalf("expected flag tenant override, got %q", settings.TenantOverride)
-	}
 	if settings.ClientID != "client-from-env" {
 		t.Fatalf("expected env client id, got %q", settings.ClientID)
 	}
-	if settings.DefaultTenantID != "tenant-file" {
-		t.Fatalf("expected persisted default tenant, got %q", settings.DefaultTenantID)
+	if settings.ProfileName != "_inline" {
+		t.Fatalf("expected inline profile, got %q", settings.ProfileName)
 	}
 	if !settings.OutputJSON {
 		t.Fatal("expected persisted json output mode to load")
 	}
-	if len(settings.XeroScopes) != 8 || settings.XeroScopes[0] != "openid" || settings.XeroScopes[7] != "accounting.reports.read" {
-		t.Fatalf("expected env scopes to override config, got %#v", settings.XeroScopes)
+	if len(settings.XeroScopes) != 6 || settings.XeroScopes[0] != "openid" || settings.XeroScopes[4] != "accounting.invoices.read" {
+		t.Fatalf("expected required scopes to be prepended, got %#v", settings.XeroScopes)
 	}
 }
 
-func TestLoadUsesConfigScopesWhenEnvMissing(t *testing.T) {
+func TestLoadUsesDefaultProfile(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
-	if err := os.WriteFile(configPath, []byte("{\n  \"scopes\": [\"openid\", \"profile\", \"email\"]\n}\n"), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte("{\n  \"defaultProfile\": \"acme\",\n  \"profiles\": {\n    \"acme\": {\"clientId\": \"client-acme\"}\n  }\n}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -70,52 +65,14 @@ func TestLoadUsesConfigScopesWhenEnvMissing(t *testing.T) {
 		t.Fatalf("load settings: %v", err)
 	}
 
-	if len(settings.XeroScopes) != 3 || settings.XeroScopes[0] != "openid" || settings.XeroScopes[2] != "email" {
-		t.Fatalf("expected config scopes, got %#v", settings.XeroScopes)
+	if settings.ProfileName != "acme" || settings.ClientID != "client-acme" {
+		t.Fatalf("unexpected profile resolution: profile=%q client=%q", settings.ProfileName, settings.ClientID)
 	}
 }
 
-func TestLoadUsesPersistedAuthCredentialsWhenEnvMissing(t *testing.T) {
+func TestProfileManagementPersistsProfiles(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
-	authPath := filepath.Join(tempDir, "auth.json")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	if err := os.WriteFile(authPath, []byte("{\n  \"clientId\": \"client-from-auth\",\n  \"clientSecret\": \"secret-from-auth\"\n}\n"), 0o600); err != nil {
-		t.Fatalf("write auth config: %v", err)
-	}
-
-	v := viper.New()
-	appconfig.ConfigureViper(v)
-	v.Set("config", configPath)
-
-	manager, err := appconfig.NewManager(v)
-	if err != nil {
-		t.Fatalf("new manager: %v", err)
-	}
-	settings, err := manager.Load(false, "test")
-	if err != nil {
-		t.Fatalf("load settings: %v", err)
-	}
-
-	if settings.ClientID != "client-from-auth" {
-		t.Fatalf("expected persisted client id, got %q", settings.ClientID)
-	}
-	if settings.ClientSecret != "secret-from-auth" {
-		t.Fatalf("expected persisted client secret, got %q", settings.ClientSecret)
-	}
-	if settings.AuthFilePath != authPath {
-		t.Fatalf("expected auth file path %q, got %q", authPath, settings.AuthFilePath)
-	}
-}
-
-func TestPersistAuthCredentialsWritesSeparateSecretFile(t *testing.T) {
-	tempDir := t.TempDir()
-	configPath := filepath.Join(tempDir, "config.json")
-	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
 
 	v := viper.New()
 	appconfig.ConfigureViper(v)
@@ -128,50 +85,49 @@ func TestPersistAuthCredentialsWritesSeparateSecretFile(t *testing.T) {
 	if _, err := manager.Load(false, "test"); err != nil {
 		t.Fatalf("load settings: %v", err)
 	}
-	if err := manager.PersistAuthCredentials("client-123", "secret-123"); err != nil {
-		t.Fatalf("persist auth credentials: %v", err)
+	if err := manager.AddProfile("acme", "client-acme", false); err != nil {
+		t.Fatalf("add profile: %v", err)
+	}
+	if err := manager.AddProfile("other", "client-other", false); err != nil {
+		t.Fatalf("add second profile: %v", err)
+	}
+	if err := manager.SetDefaultProfile("other"); err != nil {
+		t.Fatalf("set default: %v", err)
+	}
+	if err := manager.RemoveProfile("acme"); err != nil {
+		t.Fatalf("remove profile: %v", err)
 	}
 
-	authPath := filepath.Join(tempDir, "auth.json")
-	data, err := os.ReadFile(authPath)
-	if err != nil {
-		t.Fatalf("read auth file: %v", err)
+	loaded := manager.LoadedConfig()
+	if loaded.DefaultProfile != "other" || loaded.Profiles["other"].ClientID != "client-other" {
+		t.Fatalf("unexpected config: %+v", loaded)
 	}
-	if got := string(data); got != "{\n  \"clientId\": \"client-123\",\n  \"clientSecret\": \"secret-123\"\n}\n" {
-		t.Fatalf("unexpected auth file contents:\n%s", got)
-	}
-	if manager.LoadedAuthConfig().ClientSecret != "secret-123" {
-		t.Fatalf("expected loaded auth config to update, got %+v", manager.LoadedAuthConfig())
+	if _, exists := loaded.Profiles["acme"]; exists {
+		t.Fatalf("expected acme profile to be removed: %+v", loaded.Profiles)
 	}
 }
 
 func TestConfigureViperLoadsDotEnvForDevelopment(t *testing.T) {
 	tempDir := t.TempDir()
-	originalClientID, hadClientID := os.LookupEnv("XERO_AUTH_CLIENT_ID")
-	originalClientSecret, hadClientSecret := os.LookupEnv("XERO_AUTH_CLIENT_SECRET")
-	originalScopes, hadScopes := os.LookupEnv("XERO_AUTH_SCOPES")
+	originalClientID, hadClientID := os.LookupEnv("XERO_CLIENT_ID")
+	originalScopes, hadScopes := os.LookupEnv("XERO_SCOPES")
 	defer func() {
 		if hadClientID {
-			_ = os.Setenv("XERO_AUTH_CLIENT_ID", originalClientID)
+			_ = os.Setenv("XERO_CLIENT_ID", originalClientID)
 		} else {
-			_ = os.Unsetenv("XERO_AUTH_CLIENT_ID")
-		}
-		if hadClientSecret {
-			_ = os.Setenv("XERO_AUTH_CLIENT_SECRET", originalClientSecret)
-		} else {
-			_ = os.Unsetenv("XERO_AUTH_CLIENT_SECRET")
+			_ = os.Unsetenv("XERO_CLIENT_ID")
 		}
 		if hadScopes {
-			_ = os.Setenv("XERO_AUTH_SCOPES", originalScopes)
+			_ = os.Setenv("XERO_SCOPES", originalScopes)
 		} else {
-			_ = os.Unsetenv("XERO_AUTH_SCOPES")
+			_ = os.Unsetenv("XERO_SCOPES")
 		}
 	}()
 	configPath := filepath.Join(tempDir, "config.json")
 	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("XERO_AUTH_CLIENT_ID=client-from-dotenv\nXERO_AUTH_CLIENT_SECRET=secret-from-dotenv\nXERO_AUTH_SCOPES=openid profile email\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), []byte("XERO_CLIENT_ID=client-from-dotenv\nXERO_SCOPES=accounting.invoices.read\n"), 0o600); err != nil {
 		t.Fatalf("write .env: %v", err)
 	}
 	previous, err := os.Getwd()
@@ -199,20 +155,17 @@ func TestConfigureViperLoadsDotEnvForDevelopment(t *testing.T) {
 	if settings.ClientID != "client-from-dotenv" {
 		t.Fatalf("expected .env client id, got %q", settings.ClientID)
 	}
-	if settings.ClientSecret != "secret-from-dotenv" {
-		t.Fatalf("expected .env client secret, got %q", settings.ClientSecret)
-	}
-	if len(settings.XeroScopes) != 3 || settings.XeroScopes[2] != "email" {
+	if len(settings.XeroScopes) != 5 || settings.XeroScopes[4] != "accounting.invoices.read" {
 		t.Fatalf("expected .env scopes, got %#v", settings.XeroScopes)
 	}
 }
 
-func TestValidateLoginConfigRequiresScopes(t *testing.T) {
-	err := appconfig.ValidateLoginConfig(appconfig.Settings{ClientID: "client-123"})
+func TestValidateLoginConfigRequiresClientID(t *testing.T) {
+	err := appconfig.ValidateLoginConfig(appconfig.Settings{})
 	if err == nil {
-		t.Fatal("expected missing scopes error")
+		t.Fatal("expected missing client ID error")
 	}
-	if got := err.Error(); got != "missing Xero OAuth scopes; set XERO_AUTH_SCOPES or add `scopes` to ~/.config/xero/config.json" {
+	if got := err.Error(); got != "no profile configured; run `xero profile add <name>` or pass --client-id" {
 		t.Fatalf("unexpected error: %s", got)
 	}
 }

@@ -1,6 +1,6 @@
 # xero
 
-`xero` is a terminal-first Go CLI for Xero with browser OAuth, persisted session state, tenant selection, invoice listing, invoice approval, invoice PDF download, and online invoice URL lookup.
+`xero` is a terminal-first Go CLI for Xero with browser OAuth, named profiles, encrypted token storage, invoice listing, invoice approval, invoice PDF download, and online invoice URL lookup.
 
 ## Install
 
@@ -24,16 +24,18 @@ Release assets are published for macOS, Linux, and Windows on every `v*` tag.
 ## Commands
 
 ```bash
-xero auth login
-xero auth status
-xero auth logout
+xero profile add my-company --client-id YOUR_CLIENT_ID
+xero profile list
+xero profile set-default my-company
+xero login
+xero logout
 xero version
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
 xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
-xero invoices --tenant <tenant-id> --json
+xero invoices --profile my-company --json
 xero doctor
 ```
 
@@ -41,33 +43,35 @@ xero doctor
 
 - precedence: `flags > env vars (including local .env) > persisted config`
 - config file: `~/.config/xero/config.json`
-- persisted OAuth app credentials: `~/.config/xero/auth.json`
 - session metadata: `~/.config/xero/session.json`
-- token storage: `~/.config/xero/tokens.json` with `0600` permissions for MVP
+- encrypted token storage: `~/.config/xero/tokens.json` with `0600` permissions
+- token encryption key: `~/.config/xero/.encryption-key` unless `XERO_TOKEN_PASSPHRASE` is set
 
-In normal usage, the CLI reads `~/.config/xero/config.json` for non-secret persisted defaults like tenant and output mode, and `~/.config/xero/auth.json` for persisted OAuth client credentials needed for later token refresh. For development convenience, it also loads a local `.env` file from the current working directory when present.
+In normal usage, the CLI reads `~/.config/xero/config.json` for profiles, default profile, and output mode. Tokens are encrypted and cached per profile in `~/.config/xero/tokens.json`. For development convenience, it also loads a local `.env` file from the current working directory when present.
 
 ### Environment variables
 
 ```bash
-export XERO_AUTH_CLIENT_ID="your-client-id"
-export XERO_AUTH_CLIENT_SECRET="your-client-secret"
-export XERO_AUTH_SCOPES="openid profile email offline_access accounting.transactions accounting.contacts accounting.settings.read accounting.reports.read"
-export XERO_TENANT="your-default-tenant-id"
+export XERO_PROFILE="my-company"
+export XERO_CLIENT_ID="your-client-id" # optional for xero login setup
+export XERO_SCOPES="accounting.invoices.read accounting.contacts.read"
 export XERO_AUTH_OPEN_COMMAND="xdg-open" # Linux; use "open" on macOS
+export XERO_TOKEN_PASSPHRASE="optional-token-encryption-passphrase"
 ```
 
 You can also copy `.env.example` to `.env` for local development.
 
-You must set scopes explicitly with `XERO_AUTH_SCOPES` or add a `scopes` array to `~/.config/xero/config.json`; the CLI no longer assumes a default scope set.
+Normal API commands use the active profile selected by `-p, --profile` or `XERO_PROFILE`. `XERO_CLIENT_ID` is useful for `xero login` setup when you do not want to save a profile first, but named profiles are recommended for regular use.
+
+`xero login` requests the default Xero CLI scope set unless `--scope` or `XERO_SCOPES` is provided. Required OAuth scopes (`openid`, `profile`, `email`, `offline_access`) are always prepended automatically.
 
 ## Auth flow
 
-`xero auth login` starts a local OAuth callback on `http://localhost:3000/callback`, opens the system browser, exchanges the authorization code using PKCE S256, and listens on both IPv4 and IPv6 loopback addresses when available before persisting the chosen default tenant for later commands.
+`xero login` starts a local OAuth callback on `http://localhost:8742/callback`, opens the system browser, exchanges the authorization code using PKCE S256, and listens on both IPv4 and IPv6 loopback addresses when available before saving the selected tenant with the active profile token.
 
-After a successful login, the CLI also persists the current OAuth client ID and client secret to `~/.config/xero/auth.json` so later refreshes still work in new shells where the original environment variables are no longer set.
+Use profiles to switch organisations or OAuth apps: `xero invoices -p my-company`. There is no temporary tenant override; login/profile selection controls the connected organisation.
 
-Refresh is gated by the stored token `generatedAt` timestamp. The CLI refreshes only when the token is older than 25 minutes.
+Xero access tokens are short-lived, typically 30 minutes. The CLI refreshes when the stored `expiresAt` is within one minute of expiry.
 
 ## Output modes
 

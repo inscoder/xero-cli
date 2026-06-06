@@ -43,7 +43,13 @@ type fakeStore struct {
 	err   error
 }
 
-func (s *fakeStore) Load() (auth.TokenSet, error)   { return s.token, s.err }
+func (s *fakeStore) Load() (auth.TokenSet, error) {
+	if s.token.TenantID == "" {
+		s.token.TenantID = "tenant-1"
+		s.token.TenantName = "Acme"
+	}
+	return s.token, s.err
+}
 func (s *fakeStore) Save(token auth.TokenSet) error { s.token = token; return nil }
 func (s *fakeStore) Clear() error                   { s.token = auth.TokenSet{}; return nil }
 func (s *fakeStore) StorageMode() string            { return "file:test" }
@@ -122,12 +128,10 @@ func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
 	}
 }
 
-func TestAuthLoginPersistsOAuthCredentialsForLaterRefresh(t *testing.T) {
+func TestLoginUsesInlineClientID(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
-	t.Setenv("XERO_AUTH_CLIENT_ID", "client-from-env")
-	t.Setenv("XERO_AUTH_CLIENT_SECRET", "secret-from-env")
-	t.Setenv("XERO_AUTH_SCOPES", "openid profile email offline_access accounting.transactions")
+	t.Setenv("XERO_SCOPES", "accounting.invoices.read")
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -157,17 +161,9 @@ func TestAuthLoginPersistsOAuthCredentialsForLaterRefresh(t *testing.T) {
 	}
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "auth", "login", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "--client-id", "client-from-flag", "login", "--json"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute auth login: %v", err)
-	}
-
-	authData, err := os.ReadFile(filepath.Join(tempDir, "auth.json"))
-	if err != nil {
-		t.Fatalf("read auth.json: %v", err)
-	}
-	if got := string(authData); got != "{\n  \"clientId\": \"client-from-env\",\n  \"clientSecret\": \"secret-from-env\"\n}\n" {
-		t.Fatalf("unexpected auth.json contents:\n%s", got)
+		t.Fatalf("execute login: %v", err)
 	}
 	if !strings.Contains(stdout.String(), `"summary": "Logged in to 1 tenant(s)"`) {
 		t.Fatalf("unexpected stdout: %s", stdout.String())
@@ -525,7 +521,7 @@ func TestInvoicesPDFCommandQuotesBreadcrumbOutputPath(t *testing.T) {
 	if len(envelope.Breadcrumbs) != 1 {
 		t.Fatalf("expected one breadcrumb, got %+v", envelope.Breadcrumbs)
 	}
-	expected := `xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output ` + `"` + outputPath + `" --tenant tenant-1 --json`
+	expected := `xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output ` + `"` + outputPath + `" --json`
 	if envelope.Breadcrumbs[0].Cmd != expected {
 		t.Fatalf("unexpected breadcrumb: %q", envelope.Breadcrumbs[0].Cmd)
 	}
@@ -648,7 +644,7 @@ func TestInvoicesApproveCommandRequiresInvoiceIDFlag(t *testing.T) {
 	}
 }
 
-func TestInvoicesApproveCommandUsesTenantOverride(t *testing.T) {
+func TestInvoicesApproveCommandUsesTokenTenant(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	prepareConfig(t, configPath)
@@ -658,17 +654,17 @@ func TestInvoicesApproveCommandUsesTenantOverride(t *testing.T) {
 		t.Fatalf("save session: %v", err)
 	}
 
-	tokenStore := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	tokenStore := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth", TenantID: "tenant-2", TenantName: "Other"}}
 	lister := &fakeLister{approveResult: xeroapi.InvoiceApprovalResult{InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734", TenantID: "tenant-2", Status: "AUTHORISED", StatusObserved: true}}
 	deps, _, _ := testDependencies(configPath, tokenStore, lister, false)
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--tenant", "tenant-2", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "approve", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--json"})
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("execute invoices approve with tenant override: %v", err)
+		t.Fatalf("execute invoices approve with token tenant: %v", err)
 	}
 	if lister.approveReq.TenantID != "tenant-2" {
-		t.Fatalf("expected tenant override to be used, got %q", lister.approveReq.TenantID)
+		t.Fatalf("expected token tenant to be used, got %q", lister.approveReq.TenantID)
 	}
 }
 
@@ -727,8 +723,8 @@ func prepareConfig(t *testing.T, configPath string) {
 	if _, err := manager.Load(false, "test"); err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if err := manager.UpdateDefaultTenant("tenant-1", "Acme"); err != nil {
-		t.Fatalf("update default tenant: %v", err)
+	if err := manager.AddProfile("acme", "client-acme", false); err != nil {
+		t.Fatalf("add profile: %v", err)
 	}
 }
 
