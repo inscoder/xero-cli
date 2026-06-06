@@ -29,7 +29,7 @@ func TestListInvoicesBuildsAdvancedRequestAndNormalizesResponse(t *testing.T) {
 		if got := r.URL.Query().Get("Statuses"); got != "AUTHORISED,PAID" {
 			t.Fatalf("unexpected statuses query: %q", got)
 		}
-		if got := r.URL.Query().Get("where"); got != `Type=="ACCPAY" AND AmountDue>=5000` {
+		if got := r.URL.Query().Get("where"); got != `Type=="ACCPAY" AND (AmountDue>=5000)` {
 			t.Fatalf("unexpected where query: %q", got)
 		}
 		if got := r.URL.Query().Get("order"); got != "UpdatedDateUTC DESC" {
@@ -57,10 +57,11 @@ func TestListInvoicesBuildsAdvancedRequestAndNormalizesResponse(t *testing.T) {
 	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
 	invoices, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{
 		TenantID:   "tenant-1",
+		Type:       "ACCPAY",
 		InvoiceIDs: []string{"220ddca8-3144-4085-9a88-2d72c5133734", "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0"},
 		Statuses:   []string{"AUTHORISED", "PAID"},
 		Since:      "2026-03-01",
-		Where:      `Type=="ACCPAY" AND AmountDue>=5000`,
+		Where:      `AmountDue>=5000`,
 		Order:      "UpdatedDateUTC DESC",
 		Page:       2,
 		PageSize:   50,
@@ -101,6 +102,22 @@ func TestListInvoicesBuildsAdvancedRequestAndNormalizesResponse(t *testing.T) {
 	}
 	if len(invoice.Overpayments) != 1 || invoice.Overpayments[0].AllocationID != "overpay-1" {
 		t.Fatalf("expected overpayment normalization, got %+v", invoice.Overpayments)
+	}
+}
+
+func TestListInvoicesBuildsTypeOnlyWhere(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("where"); got != `Type=="ACCREC"` {
+			t.Fatalf("unexpected where query: %q", got)
+		}
+		_, _ = io.WriteString(w, `{"Invoices":[]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{TenantID: "tenant-1", Type: "ACCREC"})
+	if err != nil {
+		t.Fatalf("list invoices: %v", err)
 	}
 }
 

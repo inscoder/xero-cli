@@ -17,6 +17,7 @@ import (
 var (
 	invoiceIDPattern  = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	orderFieldPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9.]*$`)
+	whereTypePattern  = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.])Type\s*(?:==|!=|=)`)
 )
 
 var validInvoiceStatuses = map[string]struct{}{
@@ -28,13 +29,54 @@ var validInvoiceStatuses = map[string]struct{}{
 	"VOIDED":     {},
 }
 
-const defaultInvoiceOrder = "UpdatedDateUTC DESC"
+const (
+	defaultInvoiceOrder = "UpdatedDateUTC DESC"
+	defaultInvoicePage  = 1
+)
+
+type listInvoicesCommandConfig struct {
+	Use           string
+	Short         string
+	Type          string
+	Singular      string
+	Plural        string
+	BreadcrumbCmd string
+}
 
 func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
+	cmd := newListInvoicesCommand(deps, v, listInvoicesCommandConfig{
+		Use:           "invoices",
+		Short:         "List Xero sales invoices and related actions",
+		Type:          "ACCREC",
+		Singular:      "invoice",
+		Plural:        "invoices",
+		BreadcrumbCmd: "xero invoices --json",
+	})
+	cmd.AddCommand(newInvoicesApproveCommand(deps, v))
+	cmd.AddCommand(newInvoicesPDFCommand(deps, v))
+	cmd.AddCommand(newInvoicesOnlineURLCommand(deps, v))
+	return cmd
+}
+
+func newBillsCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
+	return newListInvoicesCommand(deps, v, listInvoicesCommandConfig{
+		Use:           "bills",
+		Short:         "List Xero purchase bills",
+		Type:          "ACCPAY",
+		Singular:      "bill",
+		Plural:        "bills",
+		BreadcrumbCmd: "xero bills --json",
+	})
+}
+
+func newListInvoicesCommand(deps Dependencies, v *viper.Viper, config listInvoicesCommandConfig) *cobra.Command {
 	var request xeroapi.ListInvoicesRequest
+	request.Type = config.Type
+	request.Page = defaultInvoicePage
 	cmd := &cobra.Command{
-		Use:   "invoices",
-		Short: "List Xero invoices and related actions",
+		Use:   config.Use,
+		Short: config.Short,
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rt, err := loadRuntime(deps, v)
 			if err != nil {
@@ -52,6 +94,9 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			if cmd.Flags().Changed("where") && request.Where == "" {
 				return clierrors.New(clierrors.KindValidation, "--where must not be empty")
 			}
+			if whereTypePattern.MatchString(request.Where) {
+				return clierrors.New(clierrors.KindValidation, "invoice type is selected by the command; use `xero invoices` for sales invoices or `xero bills` for purchase bills")
+			}
 			request.Order, err = normalizeOrder(request.Order, cmd.Flags().Changed("order"))
 			if err != nil {
 				return err
@@ -66,9 +111,6 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			}
 			if cmd.Flags().Changed("page-size") && request.PageSize <= 0 {
 				return clierrors.New(clierrors.KindValidation, "--page-size must be positive")
-			}
-			if request.PageSize > 0 && request.Page <= 0 {
-				return clierrors.New(clierrors.KindValidation, "--page-size requires --page")
 			}
 			token, err := rt.LoadToken()
 			if err != nil {
@@ -89,8 +131,8 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			summary := xeroapi.NewRequestSummary(len(invoices))
-			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices --json"}}
+			summary := xeroapi.NewTypedRequestSummary(len(invoices), config.Singular, config.Plural)
+			breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: config.BreadcrumbCmd}}
 			return rt.WriteData(invoices, summary, breadcrumbs, func(w io.Writer) error {
 				return output.WriteInvoices(w, invoices, summary, breadcrumbs)
 			})
@@ -101,11 +143,8 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 	cmd.Flags().StringVar(&request.Since, "since", "", "updated since date (YYYY-MM-DD)")
 	cmd.Flags().StringVar(&request.Where, "where", "", "advanced Xero where clause")
 	cmd.Flags().StringVar(&request.Order, "order", defaultInvoiceOrder, "order clause (for example: 'UpdatedDateUTC DESC')")
-	cmd.Flags().IntVar(&request.Page, "page", 0, "page number")
-	cmd.Flags().IntVar(&request.PageSize, "page-size", 0, "page size (requires --page)")
-	cmd.AddCommand(newInvoicesApproveCommand(deps, v))
-	cmd.AddCommand(newInvoicesPDFCommand(deps, v))
-	cmd.AddCommand(newInvoicesOnlineURLCommand(deps, v))
+	cmd.Flags().IntVar(&request.Page, "page", defaultInvoicePage, "page number")
+	cmd.Flags().IntVar(&request.PageSize, "page-size", 0, "page size")
 	return cmd
 }
 

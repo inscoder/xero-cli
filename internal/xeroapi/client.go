@@ -60,6 +60,7 @@ type Invoice struct {
 
 type ListInvoicesRequest struct {
 	TenantID   string
+	Type       string
 	InvoiceIDs []string
 	Statuses   []string
 	Since      string
@@ -330,8 +331,8 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 	if len(request.Statuses) > 0 {
 		query.Set("Statuses", strings.Join(request.Statuses, ","))
 	}
-	if request.Where != "" {
-		query.Set("where", request.Where)
+	if where := combineInvoiceWhere(request.Type, request.Where); where != "" {
+		query.Set("where", where)
 	}
 	if request.Order != "" {
 		query.Set("order", request.Order)
@@ -700,10 +701,27 @@ func parseXeroWrappedDate(raw string) (time.Time, bool) {
 }
 
 func NewRequestSummary(count int) string {
+	return NewTypedRequestSummary(count, "invoice", "invoices")
+}
+
+func NewTypedRequestSummary(count int, singular, plural string) string {
 	if count == 1 {
-		return "1 invoice"
+		return "1 " + singular
 	}
-	return fmt.Sprintf("%d invoices", count)
+	return fmt.Sprintf("%d %s", count, plural)
+}
+
+func combineInvoiceWhere(invoiceType, where string) string {
+	trimmedWhere := strings.TrimSpace(where)
+	trimmedType := strings.TrimSpace(invoiceType)
+	if trimmedType == "" {
+		return trimmedWhere
+	}
+	typeWhere := fmt.Sprintf(`Type=="%s"`, trimmedType)
+	if trimmedWhere == "" {
+		return typeWhere
+	}
+	return typeWhere + " AND (" + trimmedWhere + ")"
 }
 
 func DefaultContext() (context.Context, context.CancelFunc) {

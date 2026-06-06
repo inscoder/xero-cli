@@ -126,6 +126,12 @@ func TestInvoicesCommandEmitsStableJSON(t *testing.T) {
 	if lister.request.TenantID != "tenant-1" {
 		t.Fatalf("expected default tenant to be used, got %q", lister.request.TenantID)
 	}
+	if lister.request.Type != "ACCREC" {
+		t.Fatalf("expected invoice type ACCREC, got %q", lister.request.Type)
+	}
+	if lister.request.Page != 1 || lister.request.PageSize != 0 {
+		t.Fatalf("expected default first page without explicit page size, got page=%d pageSize=%d", lister.request.Page, lister.request.PageSize)
+	}
 }
 
 func TestLoginUsesInlineClientID(t *testing.T) {
@@ -184,7 +190,7 @@ func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
 	deps, _, _ := testDependencies(configPath, store, lister, false)
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "invoices", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734,88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", "--status", "authorised,paid", "--where", `Type=="ACCPAY" AND AmountDue>=5000`, "--order", "Date asc", "--page", "2", "--page-size", "50", "--since", "2026-03-01", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734,88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", "--status", "authorised,paid", "--where", `AmountDue>=5000`, "--order", "Date asc", "--page", "2", "--page-size", "50", "--since", "2026-03-01", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute invoices with filters: %v", err)
 	}
@@ -197,7 +203,10 @@ func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
 	if !reflect.DeepEqual(lister.request.Statuses, expectedStatuses) {
 		t.Fatalf("unexpected statuses: %#v", lister.request.Statuses)
 	}
-	if lister.request.Where != `Type=="ACCPAY" AND AmountDue>=5000` {
+	if lister.request.Type != "ACCREC" {
+		t.Fatalf("unexpected type: %q", lister.request.Type)
+	}
+	if lister.request.Where != `AmountDue>=5000` {
 		t.Fatalf("unexpected where: %q", lister.request.Where)
 	}
 	if lister.request.Order != "Date ASC" {
@@ -211,24 +220,55 @@ func TestInvoicesCommandPassesAdvancedFiltersToClient(t *testing.T) {
 	}
 }
 
-func TestInvoicesCommandRejectsPageSizeWithoutPage(t *testing.T) {
+func TestBillsCommandPassesPurchaseBillTypeAndFiltersToClient(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "config.json")
 	prepareConfig(t, configPath)
 	prepareSession(t, filepath.Join(tempDir, "session.json"))
 
 	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
-	lister := &fakeLister{}
+	lister := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: "1", InvoiceNumber: "BILL-0001", Type: "ACCPAY", LineItems: []xeroapi.InvoiceLineItem{}, Payments: []xeroapi.InvoicePayment{}, CreditNotes: []xeroapi.InvoiceAllocation{}, Prepayments: []xeroapi.InvoiceAllocation{}, Overpayments: []xeroapi.InvoiceAllocation{}}}}
+	deps, stdout, stderr := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "bills", "--status", "AUTHORISED", "--where", `AmountDue>=5000`, "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute bills with filters: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if lister.request.Type != "ACCPAY" {
+		t.Fatalf("expected bill type ACCPAY, got %q", lister.request.Type)
+	}
+	if lister.request.Where != `AmountDue>=5000` {
+		t.Fatalf("unexpected where: %q", lister.request.Where)
+	}
+	if lister.request.Page != 1 || lister.request.PageSize != 0 {
+		t.Fatalf("unexpected paging: page=%d pageSize=%d", lister.request.Page, lister.request.PageSize)
+	}
+	if !strings.Contains(stdout.String(), `"summary": "1 bill"`) || !strings.Contains(stdout.String(), `"cmd": "xero bills --json"`) {
+		t.Fatalf("unexpected stdout: %s", stdout.String())
+	}
+}
+
+func TestInvoicesCommandUsesDefaultPageWithPageSize(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: "1", InvoiceNumber: "INV-0001", LineItems: []xeroapi.InvoiceLineItem{}, Payments: []xeroapi.InvoicePayment{}, CreditNotes: []xeroapi.InvoiceAllocation{}, Prepayments: []xeroapi.InvoiceAllocation{}, Overpayments: []xeroapi.InvoiceAllocation{}}}}
 	deps, _, _ := testDependencies(configPath, store, lister, false)
 
 	cmd := commands.NewRootCommand(deps)
 	cmd.SetArgs([]string{"--config", configPath, "invoices", "--page-size", "100", "--json"})
-	err := cmd.Execute()
-	if clierrors.KindOf(err) != clierrors.KindValidation {
-		t.Fatalf("expected validation error, got %v", err)
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute invoices with default page and page size: %v", err)
 	}
-	if lister.request.PageSize != 0 {
-		t.Fatalf("expected client not to be called, got request %+v", lister.request)
+	if lister.request.Page != 1 || lister.request.PageSize != 100 {
+		t.Fatalf("unexpected paging: page=%d pageSize=%d", lister.request.Page, lister.request.PageSize)
 	}
 }
 
@@ -247,6 +287,48 @@ func TestInvoicesCommandRejectsUnknownStatus(t *testing.T) {
 	err := cmd.Execute()
 	if clierrors.KindOf(err) != clierrors.KindValidation {
 		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestInvoicesCommandRejectsTypeWhere(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "--where", `Type=="ACCPAY"`, "--json"})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+	if lister.request.Type != "" {
+		t.Fatalf("expected client not to be called, got request %+v", lister.request)
+	}
+}
+
+func TestBillsCommandDoesNotExposeInvoiceActions(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+
+	store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+	lister := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, store, lister, false)
+
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "bills", "pdf"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `unknown command "pdf"`) && !strings.Contains(err.Error(), "accepts 0 arg(s)") {
+		t.Fatalf("expected bills action rejection, got %v", err)
+	}
+	if lister.request.Type != "" || lister.pdfRequest.InvoiceID != "" {
+		t.Fatalf("expected client not to be called, got list=%+v pdf=%+v", lister.request, lister.pdfRequest)
 	}
 }
 

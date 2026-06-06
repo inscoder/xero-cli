@@ -147,6 +147,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newLogoutCommand(deps, v))
 	root.AddCommand(newProfileCommand(deps, v))
 	root.AddCommand(newInvoicesCommand(deps, v))
+	root.AddCommand(newBillsCommand(deps, v))
 	root.AddCommand(newDoctorCommand(deps, v))
 	root.AddCommand(newVersionCommand(deps))
 

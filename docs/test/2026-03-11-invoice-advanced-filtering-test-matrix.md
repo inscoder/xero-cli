@@ -20,7 +20,7 @@ go test ./...
 | Raw `--where` passthrough | Unit | `test/commands/invoices_test.go:83`, `test/xeroapi/client_test.go:17` |
 | Custom `--order` mapping and default descending order on live command path | Unit + Integration | `test/commands/invoices_test.go:83`, `test/xeroapi/client_test.go:17`, `test/integration/xero_invoices_integration_test.go:21` |
 | `--page-size` mapping to Xero `pageSize` | Unit + Integration | `test/commands/invoices_test.go:83`, `test/xeroapi/client_test.go:17`, `test/integration/xero_invoices_integration_test.go:21` |
-| `--page-size` requires `--page` | Unit | `test/commands/invoices_test.go:121` |
+| `--page-size` uses default page `1` when `--page` is omitted | Unit | `test/commands/invoices_test.go:121` |
 | Unknown status validation | Unit | `test/commands/invoices_test.go:142` |
 | Removed `--contact` flag is rejected | Unit | `test/commands/invoices_test.go:160` |
 | Rich invoice payload decoding from Xero response | Unit | `test/xeroapi/client_test.go:17` |
@@ -34,7 +34,7 @@ go test ./...
 
 - `test/commands/invoices_test.go:57` proves `xero invoices --json` still emits the standard envelope and now includes richer invoice fields.
 - `test/commands/invoices_test.go:83` proves command-level parsing and normalization for invoice IDs, statuses, `where`, `order`, `page`, `page-size`, and `since`.
-- `test/commands/invoices_test.go:121` proves invalid paging combinations fail before the client is called.
+- `test/commands/invoices_test.go:121` proves `--page-size` can use the default first page when `--page` is omitted.
 - `test/commands/invoices_test.go:142` proves invalid statuses fail with a typed validation error.
 - `test/commands/invoices_test.go:160` proves the removed `--contact` flag is rejected instead of silently mapping to a search term.
 - `test/xeroapi/client_test.go:17` proves the client sends the correct Xero query params and normalizes nested invoice data, dates, timestamps, payments, and allocations.
