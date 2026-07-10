@@ -135,3 +135,14 @@ For a simple setup, use the default file key. For stronger local protection, use
 - callback timeout: verify the browser can reach `http://localhost:8742/callback` and that port `8742` is free
 - wrong organisation: run `xero login -p <profile>` and select the intended tenant, or use a different profile
 - token storage: inspect `~/.config/xero/tokens.json` and `.encryption-key` permissions and rerun `xero doctor`
+
+## Accounting write scopes
+
+Invoice and bill create/update commands require the granular `accounting.invoices` scope. Attachment upload additionally requires `accounting.attachments`. A typical override is:
+
+```bash
+export XERO_SCOPES="accounting.invoices accounting.attachments accounting.contacts.read"
+xero login -p my-company
+```
+
+OAuth grants are stored in the profile token. Changing `XERO_SCOPES`, `.env`, or the login `--scope` flag does not expand an existing token, so log in again after changing the requested scopes. A 403 response is reported as `PermissionDenied` (exit code 21); verify both the app's allowed scopes and the scopes granted to that profile.

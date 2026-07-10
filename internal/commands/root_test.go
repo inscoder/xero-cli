@@ -35,6 +35,36 @@ func TestHandleExecuteErrorWritesJSONWhenRequested(t *testing.T) {
 	}
 }
 
+func TestHandleExecuteErrorWritesHumanRecoveryForUncertainMutation(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	deps := Dependencies{
+		Version:    "test",
+		IO:         IOStreams{Out: stdout, ErrOut: stderr},
+		NewViper:   viper.New,
+		IsTerminal: func(int) bool { return false },
+	}
+
+	root := NewRootCommand(deps)
+	err := clierrors.NewWithMetadata(clierrors.KindMutationUncertain, "response was lost", clierrors.Metadata{
+		MayHaveSucceeded: true,
+		IdempotencyKey:   "same-key",
+		RecoveryCommand:  "xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json",
+	})
+	handleExecuteError(root, deps, err)
+
+	want := "response was lost\n" +
+		"Warning: the mutation may have succeeded; verify remote state before retrying.\n" +
+		"Idempotency key: same-key\n" +
+		"Verify: xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json\n"
+	if stderr.String() != want {
+		t.Fatalf("unexpected stderr: got %q want %q", stderr.String(), want)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected empty stdout, got %q", stdout.String())
+	}
+}
+
 func TestRootCommandVersionFlagWritesVersion(t *testing.T) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}

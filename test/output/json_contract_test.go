@@ -2,6 +2,7 @@ package output_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 
 	clierrors "github.com/inscoder/xero-cli/internal/errors"
@@ -182,6 +183,44 @@ func TestWriteJSONQuietEmitsRawInvoiceApprovalResult(t *testing.T) {
 	}
 }
 
+func TestWriteJSONInvoiceMutationEnvelopeContract(t *testing.T) {
+	var buffer bytes.Buffer
+	result := xeroapi.InvoiceMutationResult{
+		Operation: "updated", Resource: "invoice", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734",
+		TenantID: "tenant-1", InvoiceNumber: "INV-1001", Type: "ACCREC", Status: "DRAFT",
+		UpdatedAt: "2026-07-10T10:00:00Z", LineItemsReplaced: true, RemovedLineItemCount: 1,
+		IdempotencyKey: "update-key",
+	}
+	breadcrumbs := []output.Breadcrumb{{Action: "show", Cmd: "xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json"}}
+
+	if err := output.WriteJSON(&buffer, result, "invoice updated", breadcrumbs, false); err != nil {
+		t.Fatalf("write mutation JSON: %v", err)
+	}
+	want := "{\n  \"ok\": true,\n  \"data\": {\n    \"operation\": \"updated\",\n    \"resource\": \"invoice\",\n    \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n    \"tenantId\": \"tenant-1\",\n    \"invoiceNumber\": \"INV-1001\",\n    \"type\": \"ACCREC\",\n    \"status\": \"DRAFT\",\n    \"updatedAt\": \"2026-07-10T10:00:00Z\",\n    \"lineItemsReplaced\": true,\n    \"removedLineItemCount\": 1,\n    \"idempotencyKey\": \"update-key\"\n  },\n  \"summary\": \"invoice updated\",\n  \"breadcrumbs\": [\n    {\n      \"action\": \"show\",\n      \"cmd\": \"xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --json\"\n    }\n  ]\n}\n"
+	if buffer.String() != want {
+		t.Fatalf("unexpected mutation envelope:\n%s", buffer.String())
+	}
+}
+
+func TestWriteJSONAttachmentMutationQuietContract(t *testing.T) {
+	var buffer bytes.Buffer
+	includeOnline := true
+	result := xeroapi.InvoiceAttachmentMutationResult{
+		Operation: "uploaded", Resource: "invoice", InvoiceID: "220ddca8-3144-4085-9a88-2d72c5133734",
+		TenantID: "tenant-1", Type: "ACCREC", AttachmentID: "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0",
+		FileName: "receipt.pdf", ContentType: "application/pdf", Bytes: 123, IncludeOnline: &includeOnline,
+		Overwritten: false, IdempotencyKey: "attachment-key",
+	}
+
+	if err := output.WriteJSON(&buffer, result, "invoice attachment uploaded", nil, true); err != nil {
+		t.Fatalf("write attachment JSON: %v", err)
+	}
+	want := "{\n  \"operation\": \"uploaded\",\n  \"resource\": \"invoice\",\n  \"invoiceId\": \"220ddca8-3144-4085-9a88-2d72c5133734\",\n  \"tenantId\": \"tenant-1\",\n  \"type\": \"ACCREC\",\n  \"attachmentId\": \"88192a99-cbc5-4a66-bf1a-2f9fea2d36d0\",\n  \"fileName\": \"receipt.pdf\",\n  \"contentType\": \"application/pdf\",\n  \"bytes\": 123,\n  \"includeOnline\": true,\n  \"overwritten\": false,\n  \"idempotencyKey\": \"attachment-key\"\n}\n"
+	if buffer.String() != want {
+		t.Fatalf("unexpected attachment quiet payload:\n%s", buffer.String())
+	}
+}
+
 func TestWriteErrorJSONEnvelopeContract(t *testing.T) {
 	var buffer bytes.Buffer
 	err := clierrors.New(clierrors.KindXeroAPI, "A validation exception occurred")
@@ -207,5 +246,38 @@ func TestWriteErrorJSONQuietContract(t *testing.T) {
 	expected := "{\n  \"kind\": \"ValidationError\",\n  \"message\": \"--invoice-id must be a valid UUID\",\n  \"exitCode\": 12\n}\n"
 	if buffer.String() != expected {
 		t.Fatalf("unexpected quiet error payload:\n%s", buffer.String())
+	}
+}
+
+func TestWriteErrorJSONIncludesOptionalMetadata(t *testing.T) {
+	var buffer bytes.Buffer
+	err := clierrors.NewWithMetadata(clierrors.KindMutationUncertain, "response was lost", clierrors.Metadata{
+		ValidationErrors:  []string{"first", "second"},
+		MayHaveSucceeded:  true,
+		Operation:         "created",
+		Resource:          "invoice",
+		TenantID:          "tenant-1",
+		InvoiceID:         "220ddca8-3144-4085-9a88-2d72c5133734",
+		FileName:          "receipt.pdf",
+		IdempotencyKey:    "caller-key",
+		RetryAfterSeconds: 30,
+		RecoveryCommand:   "xero invoices --json",
+	})
+
+	if err := output.WriteErrorJSON(&buffer, err, false); err != nil {
+		t.Fatalf("write error json: %v", err)
+	}
+	var envelope struct {
+		OK    bool               `json:"ok"`
+		Error output.ErrorDetail `json:"error"`
+	}
+	if err := json.Unmarshal(buffer.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode error JSON: %v", err)
+	}
+	if envelope.OK || envelope.Error.Kind != "MutationUncertainError" || envelope.Error.ExitCode != clierrors.ExitUncertain {
+		t.Fatalf("unexpected envelope: %+v", envelope)
+	}
+	if !envelope.Error.MayHaveSucceeded || envelope.Error.IdempotencyKey != "caller-key" || envelope.Error.RetryAfterSeconds != 30 || len(envelope.Error.ValidationErrors) != 2 {
+		t.Fatalf("unexpected metadata: %+v", envelope.Error.Metadata)
 	}
 }

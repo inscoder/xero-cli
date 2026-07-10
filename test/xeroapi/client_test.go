@@ -135,6 +135,153 @@ func TestListInvoicesMapsRateLimitError(t *testing.T) {
 	}
 }
 
+func TestListInvoicesCollectsNestedValidationErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"Message":"A validation exception occurred","ValidationErrors":[{"Message":"top-level"}],"Elements":[{"ValidationErrors":[{"Message":"first nested"},{"Message":"duplicate"}]}],"Invoices":[{"ValidationErrors":[{"Message":"duplicate"},{"Message":"second nested"}]}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{TenantID: "tenant-1"})
+	if clierrors.KindOf(err) != clierrors.KindXeroAPI {
+		t.Fatalf("expected Xero API error, got %v", err)
+	}
+	expected := []string{"top-level", "first nested", "duplicate", "second nested"}
+	if got := clierrors.MetadataOf(err).ValidationErrors; !equalStrings(got, expected) {
+		t.Fatalf("unexpected validation errors: got=%v want=%v", got, expected)
+	}
+	for _, message := range expected {
+		if !strings.Contains(err.Error(), message) {
+			t.Fatalf("expected error to contain %q: %v", message, err)
+		}
+	}
+}
+
+func TestListInvoicesDistinguishesAuthorizationFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		kind       clierrors.Kind
+		exitCode   int
+	}{
+		{name: "unauthorized", statusCode: http.StatusUnauthorized, kind: clierrors.KindAuthRequired, exitCode: clierrors.ExitAuth},
+		{name: "forbidden", statusCode: http.StatusForbidden, kind: clierrors.KindPermissionDenied, exitCode: clierrors.ExitPermission},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.statusCode)
+				_, _ = io.WriteString(w, `{"Message":"denied"}`)
+			}))
+			defer server.Close()
+
+			client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+			_, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{TenantID: "tenant-1"})
+			if clierrors.KindOf(err) != tt.kind || clierrors.ExitCode(err) != tt.exitCode {
+				t.Fatalf("unexpected error classification: kind=%s exit=%d err=%v", clierrors.KindOf(err), clierrors.ExitCode(err), err)
+			}
+		})
+	}
+}
+
+func TestListInvoicesPreservesRetryAfter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "42")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"Message":"slow down"}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{TenantID: "tenant-1"})
+	if clierrors.KindOf(err) != clierrors.KindRateLimit || clierrors.MetadataOf(err).RetryAfterSeconds != 42 {
+		t.Fatalf("expected rate-limit metadata, got %v metadata=%+v", err, clierrors.MetadataOf(err))
+	}
+}
+
+func TestListInvoicesNormalizesReportedValidationState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"1","HasErrors":true,"ValidationErrors":[{"Message":"bad account"}],"Warnings":[{"Message":"check tax"}]}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	invoices, err := client.ListInvoices(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.ListInvoicesRequest{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatalf("list invoices: %v", err)
+	}
+	if len(invoices) != 1 || !invoices[0].HasErrors || !equalStrings(invoices[0].ValidationErrors, []string{"bad account"}) || !equalStrings(invoices[0].Warnings, []string{"check tax"}) {
+		t.Fatalf("unexpected validation state: %+v", invoices)
+	}
+}
+
+func TestGetInvoiceBuildsPreflightRequestAndNormalizesMetadata(t *testing.T) {
+	invoiceID := "220ddca8-3144-4085-9a88-2d72c5133734"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api.xro/2.0/Invoices/"+invoiceID {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer token-123" {
+			t.Fatalf("unexpected authorization header: %q", got)
+		}
+		if got := r.Header.Get("Xero-tenant-id"); got != "tenant-1" {
+			t.Fatalf("unexpected tenant header: %q", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/json" {
+			t.Fatalf("unexpected accept header: %q", got)
+		}
+		_, _ = io.WriteString(w, `{"Invoices":[{"InvoiceID":"`+invoiceID+`","Type":"ACCREC","LineItems":[{"LineItemID":"line-1","Description":"Consulting"}],"HasAttachments":true,"Attachments":[{"AttachmentID":"attachment-1","FileName":"receipt.pdf","Url":"https://example.com/receipt.pdf","MimeType":"application/pdf","ContentLength":1234,"IncludeOnline":true,"HasErrors":true,"ValidationErrors":[{"Message":"attachment validation"}],"Warnings":[{"Message":"attachment warning"}]}],"Warnings":[{"Message":"warning one"},{"Message":"warning one"}]}]}`)
+	}))
+	defer server.Close()
+
+	client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+	invoice, err := client.GetInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoiceRequest{TenantID: "tenant-1", InvoiceID: invoiceID})
+	if err != nil {
+		t.Fatalf("get invoice: %v", err)
+	}
+	if invoice.InvoiceID != invoiceID || invoice.Type != "ACCREC" || len(invoice.LineItems) != 1 || invoice.LineItems[0].LineItemID != "line-1" {
+		t.Fatalf("unexpected invoice: %+v", invoice)
+	}
+	if len(invoice.Attachments) != 1 || invoice.Attachments[0].FileName != "receipt.pdf" || invoice.Attachments[0].ContentLength != 1234 || !invoice.Attachments[0].IncludeOnline || !invoice.Attachments[0].HasErrors {
+		t.Fatalf("unexpected attachments: %+v", invoice.Attachments)
+	}
+	if !equalStrings(invoice.Attachments[0].ValidationErrors, []string{"attachment validation"}) || !equalStrings(invoice.Attachments[0].Warnings, []string{"attachment warning"}) {
+		t.Fatalf("unexpected attachment validation state: %+v", invoice.Attachments[0])
+	}
+	if !equalStrings(invoice.Warnings, []string{"warning one"}) {
+		t.Fatalf("unexpected warnings: %v", invoice.Warnings)
+	}
+}
+
+func TestGetInvoiceRejectsInvalidPreflightResponses(t *testing.T) {
+	invoiceID := "220ddca8-3144-4085-9a88-2d72c5133734"
+	tests := []struct {
+		name    string
+		body    string
+		kind    clierrors.Kind
+		message string
+	}{
+		{name: "empty", body: `{"Invoices":[]}`, kind: clierrors.KindXeroRequest, message: "exactly one"},
+		{name: "multiple", body: `{"Invoices":[{"InvoiceID":"` + invoiceID + `"},{"InvoiceID":"other"}]}`, kind: clierrors.KindXeroRequest, message: "exactly one"},
+		{name: "mismatched ID", body: `{"Invoices":[{"InvoiceID":"88192a99-cbc5-4a66-bf1a-2f9fea2d36d0"}]}`, kind: clierrors.KindXeroRequest, message: "requested invoice ID"},
+		{name: "validation", body: `{"Invoices":[{"InvoiceID":"` + invoiceID + `","HasErrors":true,"ValidationErrors":[{"Message":"invoice invalid"}]}]}`, kind: clierrors.KindXeroAPI, message: "invoice invalid"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer server.Close()
+			client := xeroapi.NewClient(appconfig.Settings{}, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
+			_, err := client.GetInvoice(context.Background(), auth.TokenSet{AccessToken: "token-123"}, xeroapi.GetInvoiceRequest{TenantID: "tenant-1", InvoiceID: invoiceID})
+			if clierrors.KindOf(err) != tt.kind || err == nil || !strings.Contains(err.Error(), tt.message) {
+				t.Fatalf("expected %s containing %q, got %v", tt.kind, tt.message, err)
+			}
+		})
+	}
+}
+
 func TestGetOnlineInvoiceBuildsRequestAndNormalizesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api.xro/2.0/Invoices/220ddca8-3144-4085-9a88-2d72c5133734/OnlineInvoice" {
@@ -350,6 +497,18 @@ func TestApproveInvoiceRejectsEmptyResponse(t *testing.T) {
 
 type errWriter struct {
 	err error
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func (w errWriter) Write(p []byte) (int, error) {

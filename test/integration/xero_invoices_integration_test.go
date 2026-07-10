@@ -81,7 +81,7 @@ func TestInvoicesIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) commands.Authenticator {
@@ -176,7 +176,7 @@ func TestInvoicesOnlineURLIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) commands.Authenticator {
@@ -272,7 +272,7 @@ func TestInvoicesPDFIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) commands.Authenticator {
@@ -382,7 +382,7 @@ func TestInvoicesApproveIntegrationRefreshesThenCallsXeroAPI(t *testing.T) {
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{BaseURL: server.URL, HTTPClient: server.Client()})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) commands.Authenticator {

@@ -23,6 +23,7 @@ type ErrorDetail struct {
 	Kind     string `json:"kind"`
 	Message  string `json:"message"`
 	ExitCode int    `json:"exitCode"`
+	clierrors.Metadata
 }
 
 type ErrorEnvelope struct {
@@ -49,6 +50,7 @@ func WriteErrorJSON(writer io.Writer, err error, quiet bool) error {
 		Kind:     string(clierrors.KindOf(err)),
 		Message:  err.Error(),
 		ExitCode: clierrors.ExitCode(err),
+		Metadata: clierrors.MetadataOf(err),
 	}
 
 	encoder := json.NewEncoder(writer)

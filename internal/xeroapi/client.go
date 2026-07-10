@@ -50,6 +50,10 @@ type Invoice struct {
 	ExpectedPaymentDate string              `json:"expectedPaymentDate"`
 	PlannedPaymentDate  string              `json:"plannedPaymentDate"`
 	HasAttachments      bool                `json:"hasAttachments"`
+	Attachments         []InvoiceAttachment `json:"attachments,omitempty"`
+	HasErrors           bool                `json:"hasErrors,omitempty"`
+	ValidationErrors    []string            `json:"validationErrors,omitempty"`
+	Warnings            []string            `json:"warnings,omitempty"`
 	Payments            []InvoicePayment    `json:"payments"`
 	CreditNotes         []InvoiceAllocation `json:"creditNotes"`
 	Prepayments         []InvoiceAllocation `json:"prepayments"`
@@ -71,6 +75,11 @@ type ListInvoicesRequest struct {
 }
 
 type GetOnlineInvoiceRequest struct {
+	TenantID  string
+	InvoiceID string
+}
+
+type GetInvoiceRequest struct {
 	TenantID  string
 	InvoiceID string
 }
@@ -116,6 +125,18 @@ type InvoiceContact struct {
 	ContactNumber string `json:"contactNumber,omitempty"`
 }
 
+type InvoiceAttachment struct {
+	AttachmentID     string   `json:"attachmentId"`
+	FileName         string   `json:"fileName"`
+	URL              string   `json:"url,omitempty"`
+	MimeType         string   `json:"mimeType,omitempty"`
+	ContentLength    int64    `json:"contentLength"`
+	IncludeOnline    bool     `json:"includeOnline,omitempty"`
+	HasErrors        bool     `json:"hasErrors,omitempty"`
+	ValidationErrors []string `json:"validationErrors,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
+}
+
 type InvoiceLineItem struct {
 	Description string             `json:"description"`
 	Quantity    float64            `json:"quantity"`
@@ -153,8 +174,12 @@ type InvoiceAllocation struct {
 	Status       string  `json:"status"`
 }
 
-type InvoiceLister interface {
+type InvoiceClient interface {
 	ListInvoices(context.Context, auth.TokenSet, ListInvoicesRequest) ([]Invoice, error)
+	GetInvoice(context.Context, auth.TokenSet, GetInvoiceRequest) (Invoice, error)
+	CreateInvoice(context.Context, auth.TokenSet, CreateInvoiceRequest) (InvoiceMutationResult, error)
+	UpdateInvoice(context.Context, auth.TokenSet, UpdateInvoiceRequest) (InvoiceMutationResult, error)
+	UploadInvoiceAttachment(context.Context, auth.TokenSet, UploadInvoiceAttachmentRequest) (InvoiceAttachmentMutationResult, error)
 	GetOnlineInvoice(context.Context, auth.TokenSet, GetOnlineInvoiceRequest) (OnlineInvoiceResult, error)
 	GetInvoicePDF(context.Context, auth.TokenSet, GetInvoicePDFRequest, io.Writer) (InvoicePDFResult, error)
 	ApproveInvoice(context.Context, auth.TokenSet, ApproveInvoiceRequest) (InvoiceApprovalResult, error)
@@ -240,10 +265,30 @@ type invoicePayload struct {
 	ExpectedPaymentDate string              `json:"ExpectedPaymentDate"`
 	PlannedPaymentDate  string              `json:"PlannedPaymentDate"`
 	HasAttachments      bool                `json:"HasAttachments"`
+	Attachments         []attachmentPayload `json:"Attachments"`
+	HasErrors           bool                `json:"HasErrors"`
+	ValidationErrors    []messagePayload    `json:"ValidationErrors"`
+	Warnings            []messagePayload    `json:"Warnings"`
 	Payments            []paymentPayload    `json:"Payments"`
 	CreditNotes         []creditNotePayload `json:"CreditNotes"`
 	Prepayments         []allocationPayload `json:"Prepayments"`
 	Overpayments        []allocationPayload `json:"Overpayments"`
+}
+
+type attachmentPayload struct {
+	AttachmentID     string           `json:"AttachmentID"`
+	FileName         string           `json:"FileName"`
+	URL              string           `json:"Url"`
+	MimeType         string           `json:"MimeType"`
+	ContentLength    int64            `json:"ContentLength"`
+	IncludeOnline    bool             `json:"IncludeOnline"`
+	HasErrors        bool             `json:"HasErrors"`
+	ValidationErrors []messagePayload `json:"ValidationErrors"`
+	Warnings         []messagePayload `json:"Warnings"`
+}
+
+type messagePayload struct {
+	Message string `json:"Message"`
 }
 
 type contactPayload struct {
@@ -299,11 +344,19 @@ type allocationPayload struct {
 }
 
 type apiErrorPayload struct {
-	Type    string `json:"Type"`
-	Title   string `json:"Title"`
-	Detail  string `json:"Detail"`
-	Message string `json:"Message"`
-	Error   string `json:"error"`
+	Type             string                   `json:"Type"`
+	Title            string                   `json:"Title"`
+	Detail           string                   `json:"Detail"`
+	Message          string                   `json:"Message"`
+	Error            string                   `json:"error"`
+	ValidationErrors []messagePayload         `json:"ValidationErrors"`
+	Elements         []apiErrorElementPayload `json:"Elements"`
+	Invoices         []invoicePayload         `json:"Invoices"`
+	Attachments      []attachmentPayload      `json:"Attachments"`
+}
+
+type apiErrorElementPayload struct {
+	ValidationErrors []messagePayload `json:"ValidationErrors"`
 }
 
 func NewClient(settings appconfig.Settings, options ClientOptions) *Client {
@@ -377,42 +430,48 @@ func (c *Client) ListInvoices(ctx context.Context, token auth.TokenSet, request 
 
 	invoices := make([]Invoice, 0, len(payload.Invoices))
 	for _, item := range payload.Invoices {
-		invoices = append(invoices, Invoice{
-			InvoiceID:           item.InvoiceID,
-			Type:                item.Type,
-			InvoiceNumber:       item.InvoiceNumber,
-			Reference:           item.Reference,
-			Contact:             normalizeContact(item.Contact),
-			Date:                normalizeDate(item.Date),
-			DueDate:             normalizeDate(item.DueDate),
-			Status:              item.Status,
-			LineAmountTypes:     item.LineAmountTypes,
-			LineItems:           normalizeLineItems(item.LineItems),
-			SubTotal:            item.SubTotal,
-			TotalTax:            item.TotalTax,
-			Total:               item.Total,
-			TotalDiscount:       item.TotalDiscount,
-			AmountDue:           item.AmountDue,
-			AmountPaid:          item.AmountPaid,
-			AmountCredited:      item.AmountCredited,
-			CurrencyCode:        item.CurrencyCode,
-			CurrencyRate:        item.CurrencyRate,
-			UpdatedAt:           normalizeTimestamp(item.UpdatedDateUTC),
-			BrandingThemeID:     item.BrandingThemeID,
-			URL:                 item.URL,
-			SentToContact:       item.SentToContact,
-			ExpectedPaymentDate: normalizeDate(item.ExpectedPaymentDate),
-			PlannedPaymentDate:  normalizeDate(item.PlannedPaymentDate),
-			HasAttachments:      item.HasAttachments,
-			Payments:            normalizePayments(item.Payments),
-			CreditNotes:         normalizeCreditNotes(item.CreditNotes),
-			Prepayments:         normalizeAllocations(item.Prepayments),
-			Overpayments:        normalizeAllocations(item.Overpayments),
-			ContactName:         item.Contact.Name,
-			Currency:            item.CurrencyCode,
-		})
+		invoices = append(invoices, normalizeInvoice(item))
 	}
 	return invoices, nil
+}
+
+func (c *Client) GetInvoice(ctx context.Context, token auth.TokenSet, request GetInvoiceRequest) (Invoice, error) {
+	endpoint, err := url.Parse(c.baseURL + "/api.xro/2.0/Invoices/" + url.PathEscape(request.InvoiceID))
+	if err != nil {
+		return Invoice{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero invoice URL", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return Invoice{}, clierrors.Wrap(clierrors.KindXeroRequest, "build Xero invoice request", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Xero-tenant-id", request.TenantID)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return Invoice{}, clierrors.Wrap(clierrors.KindNetwork, "send Xero invoice request", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return Invoice{}, decodeAPIError(resp)
+	}
+
+	var payload invoicesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return Invoice{}, clierrors.Wrap(clierrors.KindXeroRequest, "decode Xero invoice response", err)
+	}
+	if len(payload.Invoices) != 1 {
+		return Invoice{}, clierrors.New(clierrors.KindXeroRequest, fmt.Sprintf("Xero invoice response must contain exactly one invoice; got %d", len(payload.Invoices)))
+	}
+	item := payload.Invoices[0]
+	if strings.TrimSpace(item.InvoiceID) == "" || !strings.EqualFold(item.InvoiceID, request.InvoiceID) {
+		return Invoice{}, clierrors.New(clierrors.KindXeroRequest, "Xero invoice response did not match the requested invoice ID")
+	}
+	if err := invoicePayloadValidationError(item, "get invoice"); err != nil {
+		return Invoice{}, err
+	}
+	return normalizeInvoice(item), nil
 }
 
 func (c *Client) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, request GetOnlineInvoiceRequest) (OnlineInvoiceResult, error) {
@@ -545,6 +604,9 @@ func (c *Client) ApproveInvoice(ctx context.Context, token auth.TokenSet, reques
 	}
 
 	invoice := payload.Invoices[0]
+	if err := invoicePayloadValidationError(invoice, "approve invoice"); err != nil {
+		return InvoiceApprovalResult{}, err
+	}
 	result := InvoiceApprovalResult{
 		InvoiceID:      firstNonEmpty(invoice.InvoiceID, request.InvoiceID),
 		TenantID:       request.TenantID,
@@ -568,14 +630,155 @@ func decodeAPIError(resp *http.Response) error {
 	var payload apiErrorPayload
 	_ = json.NewDecoder(resp.Body).Decode(&payload)
 	message := firstNonEmpty(payload.Detail, payload.Message, payload.Error, payload.Title, resp.Status)
+	validationErrors := collectAPIValidationErrors(payload)
+	if len(validationErrors) > 0 {
+		message = appendValidationErrors(message, validationErrors)
+	}
+	metadata := clierrors.Metadata{ValidationErrors: validationErrors}
+	if seconds, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && seconds > 0 {
+		metadata.RetryAfterSeconds = seconds
+	}
 	switch resp.StatusCode {
 	case http.StatusTooManyRequests:
-		return clierrors.New(clierrors.KindRateLimit, message)
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return clierrors.New(clierrors.KindAuthRequired, message)
+		return clierrors.NewWithMetadata(clierrors.KindRateLimit, message, metadata)
+	case http.StatusUnauthorized:
+		return clierrors.NewWithMetadata(clierrors.KindAuthRequired, message, metadata)
+	case http.StatusForbidden:
+		return clierrors.NewWithMetadata(clierrors.KindPermissionDenied, message, metadata)
 	default:
-		return clierrors.New(clierrors.KindXeroAPI, message)
+		return clierrors.NewWithMetadata(clierrors.KindXeroAPI, message, metadata)
 	}
+}
+
+func collectAPIValidationErrors(payload apiErrorPayload) []string {
+	messages := make([]string, 0)
+	messages = appendMessagePayloads(messages, payload.ValidationErrors)
+	for _, element := range payload.Elements {
+		messages = appendMessagePayloads(messages, element.ValidationErrors)
+	}
+	for _, invoice := range payload.Invoices {
+		messages = appendMessagePayloads(messages, invoice.ValidationErrors)
+	}
+	for _, attachment := range payload.Attachments {
+		messages = appendMessagePayloads(messages, attachment.ValidationErrors)
+	}
+	return uniqueMessages(messages)
+}
+
+func invoicePayloadValidationError(payload invoicePayload, action string) error {
+	validationErrors := uniqueMessages(appendMessagePayloads(nil, payload.ValidationErrors))
+	if !payload.HasErrors && len(validationErrors) == 0 {
+		return nil
+	}
+	message := "Xero reported invoice validation errors"
+	if strings.TrimSpace(action) != "" {
+		message = "Xero could not " + action
+	}
+	return clierrors.NewWithMetadata(clierrors.KindXeroAPI, appendValidationErrors(message, validationErrors), clierrors.Metadata{
+		ValidationErrors: validationErrors,
+	})
+}
+
+func appendValidationErrors(message string, validationErrors []string) string {
+	if len(validationErrors) == 0 {
+		return message
+	}
+	remaining := make([]string, 0, len(validationErrors))
+	for _, validationError := range validationErrors {
+		if strings.Contains(message, validationError) {
+			continue
+		}
+		remaining = append(remaining, validationError)
+	}
+	if len(remaining) == 0 {
+		return message
+	}
+	return message + ": " + strings.Join(remaining, "; ")
+}
+
+func appendMessagePayloads(messages []string, payloads []messagePayload) []string {
+	for _, payload := range payloads {
+		if message := strings.TrimSpace(payload.Message); message != "" {
+			messages = append(messages, message)
+		}
+	}
+	return messages
+}
+
+func uniqueMessages(messages []string) []string {
+	unique := make([]string, 0, len(messages))
+	seen := make(map[string]struct{}, len(messages))
+	for _, message := range messages {
+		message = strings.TrimSpace(message)
+		if message == "" {
+			continue
+		}
+		if _, ok := seen[message]; ok {
+			continue
+		}
+		seen[message] = struct{}{}
+		unique = append(unique, message)
+	}
+	return unique
+}
+
+func normalizeInvoice(item invoicePayload) Invoice {
+	return Invoice{
+		InvoiceID:           item.InvoiceID,
+		Type:                item.Type,
+		InvoiceNumber:       item.InvoiceNumber,
+		Reference:           item.Reference,
+		Contact:             normalizeContact(item.Contact),
+		Date:                normalizeDate(item.Date),
+		DueDate:             normalizeDate(item.DueDate),
+		Status:              item.Status,
+		LineAmountTypes:     item.LineAmountTypes,
+		LineItems:           normalizeLineItems(item.LineItems),
+		SubTotal:            item.SubTotal,
+		TotalTax:            item.TotalTax,
+		Total:               item.Total,
+		TotalDiscount:       item.TotalDiscount,
+		AmountDue:           item.AmountDue,
+		AmountPaid:          item.AmountPaid,
+		AmountCredited:      item.AmountCredited,
+		CurrencyCode:        item.CurrencyCode,
+		CurrencyRate:        item.CurrencyRate,
+		UpdatedAt:           normalizeTimestamp(item.UpdatedDateUTC),
+		BrandingThemeID:     item.BrandingThemeID,
+		URL:                 item.URL,
+		SentToContact:       item.SentToContact,
+		ExpectedPaymentDate: normalizeDate(item.ExpectedPaymentDate),
+		PlannedPaymentDate:  normalizeDate(item.PlannedPaymentDate),
+		HasAttachments:      item.HasAttachments,
+		Attachments:         normalizeAttachments(item.Attachments),
+		HasErrors:           item.HasErrors,
+		ValidationErrors:    uniqueMessages(appendMessagePayloads(nil, item.ValidationErrors)),
+		Warnings:            uniqueMessages(appendMessagePayloads(nil, item.Warnings)),
+		Payments:            normalizePayments(item.Payments),
+		CreditNotes:         normalizeCreditNotes(item.CreditNotes),
+		Prepayments:         normalizeAllocations(item.Prepayments),
+		Overpayments:        normalizeAllocations(item.Overpayments),
+		ContactName:         item.Contact.Name,
+		Currency:            item.CurrencyCode,
+	}
+}
+
+func normalizeAttachments(raw []attachmentPayload) []InvoiceAttachment {
+	attachments := make([]InvoiceAttachment, 0, len(raw))
+	for _, attachment := range raw {
+		attachments = append(attachments, InvoiceAttachment{
+			AttachmentID:     attachment.AttachmentID,
+			FileName:         attachment.FileName,
+			URL:              attachment.URL,
+			MimeType:         attachment.MimeType,
+			ContentLength:    attachment.ContentLength,
+			IncludeOnline:    attachment.IncludeOnline,
+			HasErrors:        attachment.HasErrors,
+			ValidationErrors: uniqueMessages(appendMessagePayloads(nil, attachment.ValidationErrors)),
+			Warnings:         uniqueMessages(appendMessagePayloads(nil, attachment.Warnings)),
+		})
+	}
+	return attachments
 }
 
 func normalizeContact(raw contactPayload) InvoiceContact {

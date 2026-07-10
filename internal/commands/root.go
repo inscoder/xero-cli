@@ -37,7 +37,7 @@ type Dependencies struct {
 	NewViper         func() *viper.Viper
 	NewTokenStore    func(appconfig.Settings) auth.TokenStore
 	NewSessionStore  func(string) *auth.SessionStore
-	NewInvoiceClient func(appconfig.Settings) xeroapi.InvoiceLister
+	NewInvoiceClient func(appconfig.Settings) xeroapi.InvoiceClient
 	NewBrowserAuth   func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) Authenticator
 	IsTerminal       func(fd int) bool
 	LookPath         func(string) error
@@ -53,7 +53,7 @@ type Runtime struct {
 	Session      *auth.SessionStore
 	Tenants      *auth.TenantStore
 	Auth         Authenticator
-	Xero         xeroapi.InvoiceLister
+	Xero         xeroapi.InvoiceClient
 	SessionMeta  auth.SessionMetadata
 	IO           IOStreams
 	LookPath     func(string) error
@@ -79,7 +79,9 @@ func handleExecuteError(root *cobra.Command, deps Dependencies, err error) {
 			return
 		}
 	}
-	fmt.Fprintln(deps.IO.ErrOut, err)
+	if writeErr := output.WriteErrorHuman(deps.IO.ErrOut, err); writeErr != nil {
+		fmt.Fprintln(deps.IO.ErrOut, err)
+	}
 }
 
 func wantsStructuredErrors(root *cobra.Command, deps Dependencies) (bool, bool) {
@@ -161,7 +163,7 @@ func defaultDependencies(version string) Dependencies {
 		NewViper:        viper.New,
 		NewTokenStore:   func(settings appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) Authenticator {
