@@ -6,6 +6,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/inscoder/xero-cli/internal/auth"
+	clierrors "github.com/inscoder/xero-cli/internal/errors"
 	"github.com/inscoder/xero-cli/internal/xeroapi"
 )
 
@@ -62,6 +63,72 @@ func WriteInvoiceApproved(writer io.Writer, result xeroapi.InvoiceApprovalResult
 	}
 	_, err := fmt.Fprintf(writer, "Approved invoice %s for tenant %s (%s)\n", label, result.TenantID, result.Status)
 	return err
+}
+
+func WriteInvoiceMutation(writer io.Writer, result xeroapi.InvoiceMutationResult) error {
+	label := result.InvoiceID
+	if result.InvoiceNumber != "" {
+		label = fmt.Sprintf("%s (%s)", result.InvoiceNumber, result.InvoiceID)
+	}
+	verb := "Updated"
+	if result.Operation == "created" {
+		verb = "Created"
+	}
+	if _, err := fmt.Fprintf(writer, "%s %s %s for tenant %s (%s)\n", verb, result.Resource, label, result.TenantID, result.Status); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(writer, "Idempotency key: %s\n", result.IdempotencyKey)
+	return err
+}
+
+func WriteInvoiceAttachmentMutation(writer io.Writer, result xeroapi.InvoiceAttachmentMutationResult) error {
+	verb := "Uploaded"
+	if result.Operation == "replaced" {
+		verb = "Replaced"
+	}
+	if _, err := fmt.Fprintf(
+		writer,
+		"%s attachment %s (%s) on %s %s for tenant %s (%s, %s, %d bytes)\n",
+		verb,
+		result.FileName,
+		result.AttachmentID,
+		result.Resource,
+		result.InvoiceID,
+		result.TenantID,
+		result.Type,
+		result.ContentType,
+		result.Bytes,
+	); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(writer, "Idempotency key: %s\n", result.IdempotencyKey)
+	return err
+}
+
+// WriteErrorHuman keeps ordinary errors concise while making ambiguous
+// accounting-write outcomes recoverable without requiring --json.
+func WriteErrorHuman(writer io.Writer, err error) error {
+	if _, writeErr := fmt.Fprintln(writer, err); writeErr != nil {
+		return writeErr
+	}
+	metadata := clierrors.MetadataOf(err)
+	if !metadata.MayHaveSucceeded {
+		return nil
+	}
+	if _, writeErr := fmt.Fprintln(writer, "Warning: the mutation may have succeeded; verify remote state before retrying."); writeErr != nil {
+		return writeErr
+	}
+	if metadata.IdempotencyKey != "" {
+		if _, writeErr := fmt.Fprintf(writer, "Idempotency key: %s\n", metadata.IdempotencyKey); writeErr != nil {
+			return writeErr
+		}
+	}
+	if metadata.RecoveryCommand != "" {
+		if _, writeErr := fmt.Fprintf(writer, "Verify: %s\n", metadata.RecoveryCommand); writeErr != nil {
+			return writeErr
+		}
+	}
+	return nil
 }
 
 func WriteStatus(writer io.Writer, authenticated bool, session auth.SessionMetadata, defaultTenantID, defaultTenantName string, refreshNeeded bool) error {

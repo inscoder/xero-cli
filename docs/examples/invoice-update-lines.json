@@ -1,0 +1,13 @@
+{
+  "reference": "PO-1042-revised",
+  "lineItems": [
+    {
+      "lineItemId": "4209b10d-8ca6-4f1b-a60e-8bfb90c82fa3",
+      "description": "Consulting services, revised",
+      "quantity": 3,
+      "unitAmount": 1500,
+      "accountCode": "200",
+      "taxType": "OUTPUT"
+    }
+  ]
+}

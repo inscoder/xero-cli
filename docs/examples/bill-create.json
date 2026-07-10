@@ -1,0 +1,16 @@
+{
+  "contactId": "eaa28f49-6028-4b6e-bb12-d8f6278073fc",
+  "date": "2026-07-10",
+  "dueDate": "2026-07-31",
+  "invoiceNumber": "SUPPLIER-8831",
+  "plannedPaymentDate": "2026-07-28",
+  "status": "DRAFT",
+  "lineItems": [
+    {
+      "description": "Cloud hosting",
+      "quantity": 1,
+      "unitAmount": 500,
+      "accountCode": "404"
+    }
+  ]
+}

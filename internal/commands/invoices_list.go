@@ -44,6 +44,7 @@ type listInvoicesCommandConfig struct {
 }
 
 func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
+	mutationConfig := salesInvoiceCommandConfig()
 	cmd := newListInvoicesCommand(deps, v, listInvoicesCommandConfig{
 		Use:           "invoices",
 		Short:         "List Xero sales invoices and related actions",
@@ -55,18 +56,26 @@ func newInvoicesCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
 	cmd.AddCommand(newInvoicesApproveCommand(deps, v))
 	cmd.AddCommand(newInvoicesPDFCommand(deps, v))
 	cmd.AddCommand(newInvoicesOnlineURLCommand(deps, v))
+	cmd.AddCommand(newInvoiceCreateCommand(deps, v, mutationConfig))
+	cmd.AddCommand(newInvoiceUpdateCommand(deps, v, mutationConfig))
+	cmd.AddCommand(newInvoiceAttachmentsCommand(deps, v, mutationConfig))
 	return cmd
 }
 
 func newBillsCommand(deps Dependencies, v *viper.Viper) *cobra.Command {
-	return newListInvoicesCommand(deps, v, listInvoicesCommandConfig{
+	cmd := newListInvoicesCommand(deps, v, listInvoicesCommandConfig{
 		Use:           "bills",
-		Short:         "List Xero purchase bills",
+		Short:         "List and manage Xero purchase bills",
 		Type:          "ACCPAY",
 		Singular:      "bill",
 		Plural:        "bills",
 		BreadcrumbCmd: "xero bills --json",
 	})
+	mutationConfig := purchaseInvoiceCommandConfig()
+	cmd.AddCommand(newInvoiceCreateCommand(deps, v, mutationConfig))
+	cmd.AddCommand(newInvoiceUpdateCommand(deps, v, mutationConfig))
+	cmd.AddCommand(newInvoiceAttachmentsCommand(deps, v, mutationConfig))
+	return cmd
 }
 
 func newListInvoicesCommand(deps Dependencies, v *viper.Viper, config listInvoicesCommandConfig) *cobra.Command {

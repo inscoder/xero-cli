@@ -1,6 +1,6 @@
 # xero
 
-`xero` is a terminal-first Go CLI for Xero with browser OAuth, named profiles, encrypted token storage, invoice and bill listing, invoice approval, invoice PDF download, and online invoice URL lookup.
+`xero` is a terminal-first Go CLI for Xero with browser OAuth, named profiles, encrypted token storage, invoice and bill listing and mutation workflows, attachment upload, invoice approval, invoice PDF download, and online invoice URL lookup.
 
 ## Install
 
@@ -33,6 +33,12 @@ xero version
 xero invoices --status AUTHORISED,PAID --page 1 --page-size 100
 xero invoices --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --order "UpdatedDateUTC DESC"
 xero bills --status AUTHORISED --where 'AmountDue>=5000'
+xero invoices create --file docs/examples/invoice-create.json
+xero bills create --file docs/examples/bill-create.json
+xero invoices update --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --file invoice-update.json
+xero bills update --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --file bill-update.json
+xero invoices attachments upload --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --file receipt.pdf
+xero bills attachments upload --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --file receipt.pdf
 xero invoices approve --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
 xero invoices pdf --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734 --output invoice.pdf
 xero invoices online-url --invoice-id 220ddca8-3144-4085-9a88-2d72c5133734
@@ -55,7 +61,7 @@ In normal usage, the CLI reads `~/.config/xero/config.json` for profiles, defaul
 ```bash
 export XERO_PROFILE="my-company"
 export XERO_CLIENT_ID="your-client-id" # optional for xero login setup
-export XERO_SCOPES="accounting.invoices.read accounting.contacts.read"
+export XERO_SCOPES="accounting.invoices accounting.attachments accounting.contacts.read"
 export XERO_AUTH_OPEN_COMMAND="xdg-open" # Linux; use "open" on macOS
 export XERO_TOKEN_PASSPHRASE="optional-token-encryption-passphrase"
 ```
@@ -103,6 +109,10 @@ Machine-readable contract examples:
 ```
 
 `xero invoices` lists sales invoices (`ACCREC`) and `xero bills` lists purchase bills (`ACCPAY`). Both commands call Xero's `GET /Invoices` endpoint and apply the correct Xero `Type` filter automatically.
+
+`create` and `update` accept one strict camelCase JSON object through `--file PATH|-`. The command namespace owns the Xero type: `invoices` always sends `ACCREC`, while `bills` always sends `ACCPAY`. Updates containing `lineItems` require `--replace-line-items` because Xero treats the submitted array as the complete desired set. Every mutation supports `--idempotency-key`; when omitted, the CLI generates and reports one.
+
+`attachments upload` accepts a regular local file up to 10,000,000 bytes. A same-name attachment is never replaced implicitly: pass `--overwrite` only after the preflight confirms the filename already exists. Sales-invoice uploads additionally support `--include-online` for new attachments.
 
 Invoice and bill listing requests default to `page=1` so commands do not ask Xero for an unbounded result set. Use `--page` and `--page-size` to control pagination explicitly.
 

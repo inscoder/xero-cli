@@ -56,21 +56,101 @@ func (s *fakeStore) StorageMode() string            { return "file:test" }
 func (s *fakeStore) FallbackPath() string           { return "test" }
 
 type fakeLister struct {
-	request       xeroapi.ListInvoicesRequest
-	onlineRequest xeroapi.GetOnlineInvoiceRequest
-	pdfRequest    xeroapi.GetInvoicePDFRequest
-	approveReq    xeroapi.ApproveInvoiceRequest
-	invoices      []xeroapi.Invoice
-	onlineInvoice xeroapi.OnlineInvoiceResult
-	pdfResult     xeroapi.InvoicePDFResult
-	approveResult xeroapi.InvoiceApprovalResult
-	pdfContent    []byte
-	err           error
+	request        xeroapi.ListInvoicesRequest
+	getRequest     xeroapi.GetInvoiceRequest
+	onlineRequest  xeroapi.GetOnlineInvoiceRequest
+	pdfRequest     xeroapi.GetInvoicePDFRequest
+	approveReq     xeroapi.ApproveInvoiceRequest
+	createReq      xeroapi.CreateInvoiceRequest
+	updateReq      xeroapi.UpdateInvoiceRequest
+	uploadReq      xeroapi.UploadInvoiceAttachmentRequest
+	invoices       []xeroapi.Invoice
+	onlineInvoice  xeroapi.OnlineInvoiceResult
+	pdfResult      xeroapi.InvoicePDFResult
+	approveResult  xeroapi.InvoiceApprovalResult
+	mutationResult xeroapi.InvoiceMutationResult
+	uploadResult   xeroapi.InvoiceAttachmentMutationResult
+	uploadBody     []byte
+	uploadCalls    int
+	pdfContent     []byte
+	err            error
 }
 
 func (f *fakeLister) ListInvoices(ctx context.Context, token auth.TokenSet, request xeroapi.ListInvoicesRequest) ([]xeroapi.Invoice, error) {
 	f.request = request
 	return f.invoices, f.err
+}
+
+func (f *fakeLister) GetInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.GetInvoiceRequest) (xeroapi.Invoice, error) {
+	f.getRequest = request
+	if f.err != nil {
+		return xeroapi.Invoice{}, f.err
+	}
+	if len(f.invoices) == 0 {
+		return xeroapi.Invoice{}, nil
+	}
+	return f.invoices[0], nil
+}
+
+func (f *fakeLister) CreateInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.CreateInvoiceRequest) (xeroapi.InvoiceMutationResult, error) {
+	f.createReq = request
+	result := f.mutationResult
+	if result.Operation == "" {
+		result.Operation = "created"
+		result.Resource = request.Resource
+		result.TenantID = request.TenantID
+		result.Type = request.Invoice.Type
+		result.IdempotencyKey = request.IdempotencyKey
+	}
+	return result, f.err
+}
+
+func (f *fakeLister) UpdateInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.UpdateInvoiceRequest) (xeroapi.InvoiceMutationResult, error) {
+	f.updateReq = request
+	result := f.mutationResult
+	if result.Operation == "" {
+		result.Operation = "updated"
+		result.Resource = request.Resource
+		result.InvoiceID = request.InvoiceID
+		result.TenantID = request.TenantID
+		result.Type = request.Invoice.Type
+		result.IdempotencyKey = request.IdempotencyKey
+	}
+	return result, f.err
+}
+
+func (f *fakeLister) UploadInvoiceAttachment(ctx context.Context, token auth.TokenSet, request xeroapi.UploadInvoiceAttachmentRequest) (xeroapi.InvoiceAttachmentMutationResult, error) {
+	f.uploadReq = request
+	f.uploadCalls++
+	if f.err != nil {
+		return xeroapi.InvoiceAttachmentMutationResult{}, f.err
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return xeroapi.InvoiceAttachmentMutationResult{}, err
+	}
+	f.uploadBody = body
+	result := f.uploadResult
+	if result.Operation == "" {
+		result.Operation = "uploaded"
+		if request.Replace {
+			result.Operation = "replaced"
+		}
+		result.Resource = request.Resource
+		result.InvoiceID = request.InvoiceID
+		result.TenantID = request.TenantID
+		result.Type = request.Type
+		result.FileName = request.FileName
+		result.ContentType = request.ContentType
+		result.Bytes = request.ContentLength
+		result.Overwritten = request.Replace
+		result.IdempotencyKey = request.IdempotencyKey
+		if request.Resource == "invoice" {
+			includeOnline := request.IncludeOnline
+			result.IncludeOnline = &includeOnline
+		}
+	}
+	return result, nil
 }
 
 func (f *fakeLister) GetOnlineInvoice(ctx context.Context, token auth.TokenSet, request xeroapi.GetOnlineInvoiceRequest) (xeroapi.OnlineInvoiceResult, error) {
@@ -149,7 +229,7 @@ func TestLoginUsesInlineClientID(t *testing.T) {
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return &fakeStore{} },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceClient {
 			return &fakeLister{}
 		},
 		NewBrowserAuth: func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) commands.Authenticator {
@@ -768,7 +848,170 @@ func TestInvoicesApproveCommandPropagatesTypedUpstreamError(t *testing.T) {
 	}
 }
 
-func testDependencies(configPath string, store auth.TokenStore, lister xeroapi.InvoiceLister, interactive bool) (commands.Dependencies, *bytes.Buffer, *bytes.Buffer) {
+func TestInvoiceAndBillCreateCommandsUseNamespaceOwnedTypes(t *testing.T) {
+	tests := []struct {
+		name          string
+		namespace     string
+		wantType      string
+		wantResource  string
+		inputExtra    string
+		idempotency   string
+		wantGenerated bool
+	}{
+		{name: "sales invoice", namespace: "invoices", wantType: "ACCREC", wantResource: "invoice", inputExtra: `,"sentToContact":false`, idempotency: "create-key"},
+		{name: "purchase bill", namespace: "bills", wantType: "ACCPAY", wantResource: "bill", inputExtra: `,"plannedPaymentDate":"2026-07-31"`, wantGenerated: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "config.json")
+			prepareConfig(t, configPath)
+			prepareSession(t, filepath.Join(tempDir, "session.json"))
+			inputPath := filepath.Join(tempDir, "create.json")
+			body := `{"contactId":"220ddca8-3144-4085-9a88-2d72c5133734","reference":"PO-1","lineItems":[{"description":"Service","quantity":1.234567890123456789,"unitAmount":0}]` + tt.inputExtra + `}`
+			if err := os.WriteFile(inputPath, []byte(body), 0o600); err != nil {
+				t.Fatalf("write input: %v", err)
+			}
+
+			store := &fakeStore{token: auth.TokenSet{AccessToken: "token", GeneratedAt: time.Now().UTC(), AuthMode: "browser_oauth"}}
+			client := &fakeLister{mutationResult: xeroapi.InvoiceMutationResult{InvoiceID: "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", InvoiceNumber: "DOC-1", Status: "DRAFT"}}
+			deps, stdout, stderr := testDependencies(configPath, store, client, false)
+			args := []string{"--config", configPath, tt.namespace, "create", "--file", inputPath, "--json"}
+			if tt.idempotency != "" {
+				args = append(args, "--idempotency-key", tt.idempotency)
+			}
+			cmd := commands.NewRootCommand(deps)
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute create: %v", err)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("unexpected stderr: %s", stderr.String())
+			}
+			if client.createReq.Invoice.Type != tt.wantType || client.createReq.Resource != tt.wantResource || client.createReq.Namespace != tt.namespace {
+				t.Fatalf("unexpected namespace mapping: %+v", client.createReq)
+			}
+			if client.createReq.Invoice.Status == nil || *client.createReq.Invoice.Status != "DRAFT" {
+				t.Fatalf("expected explicit DRAFT, got %+v", client.createReq.Invoice.Status)
+			}
+			if client.createReq.Invoice.LineItems == nil || len(*client.createReq.Invoice.LineItems) != 1 || (*client.createReq.Invoice.LineItems)[0].Quantity.String() != "1.234567890123456789" {
+				t.Fatalf("expected lossless line-item input, got %+v", client.createReq.Invoice.LineItems)
+			}
+			if tt.wantGenerated {
+				if len(client.createReq.IdempotencyKey) != 64 {
+					t.Fatalf("expected generated key, got %q", client.createReq.IdempotencyKey)
+				}
+			} else if client.createReq.IdempotencyKey != tt.idempotency {
+				t.Fatalf("unexpected idempotency key: %q", client.createReq.IdempotencyKey)
+			}
+			if !strings.Contains(stdout.String(), `"operation": "created"`) || !strings.Contains(stdout.String(), `"cmd": "xero `+tt.namespace+` --invoice-id 88192a99-cbc5-4a66-bf1a-2f9fea2d36d0 --json"`) {
+				t.Fatalf("unexpected output: %s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestInvoiceUpdateLineItemGateRunsBeforeRuntime(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "missing-config.json")
+	inputPath := filepath.Join(tempDir, "update.json")
+	if err := os.WriteFile(inputPath, []byte(`{"lineItems":[{"description":"Service"}]}`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	client := &fakeLister{}
+	deps, _, _ := testDependencies(configPath, &fakeStore{}, client, false)
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "update", "--invoice-id", "220ddca8-3144-4085-9a88-2d72c5133734", "--file", inputPath})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation || err == nil || !strings.Contains(err.Error(), "--replace-line-items") {
+		t.Fatalf("expected replacement confirmation error, got %v", err)
+	}
+	if client.getRequest.InvoiceID != "" || client.updateReq.InvoiceID != "" {
+		t.Fatalf("expected no client calls, get=%+v update=%+v", client.getRequest, client.updateReq)
+	}
+}
+
+func TestBillUpdateRejectsWrongTypeBeforeMutation(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+	inputPath := filepath.Join(tempDir, "update.json")
+	if err := os.WriteFile(inputPath, []byte(`{"reference":"new"}`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	invoiceID := "220ddca8-3144-4085-9a88-2d72c5133734"
+	client := &fakeLister{invoices: []xeroapi.Invoice{{InvoiceID: invoiceID, Type: "ACCREC"}}}
+	deps, _, _ := testDependencies(configPath, &fakeStore{token: auth.TokenSet{AccessToken: "token"}}, client, false)
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "bills", "update", "--invoice-id", invoiceID, "--file", inputPath})
+	err := cmd.Execute()
+	if clierrors.KindOf(err) != clierrors.KindValidation || err == nil || !strings.Contains(err.Error(), "ACCPAY") {
+		t.Fatalf("expected wrong-Type error, got %v", err)
+	}
+	if client.getRequest.InvoiceID != invoiceID || client.updateReq.InvoiceID != "" {
+		t.Fatalf("expected one preflight and zero mutations: get=%+v update=%+v", client.getRequest, client.updateReq)
+	}
+}
+
+func TestInvoiceUpdatePreservesAbsentFieldsAndReportsRemovedLines(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+	keptID := "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0"
+	removedID := "c7c1f7ca-3793-4f66-a4e2-77858365bcfa"
+	inputPath := filepath.Join(tempDir, "update.json")
+	if err := os.WriteFile(inputPath, []byte(`{"sentToContact":false,"lineItems":[{"lineItemId":"`+keptID+`","description":"Kept","quantity":0}]}`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	invoiceID := "220ddca8-3144-4085-9a88-2d72c5133734"
+	client := &fakeLister{
+		invoices:       []xeroapi.Invoice{{InvoiceID: invoiceID, Type: "ACCREC", LineItems: []xeroapi.InvoiceLineItem{{LineItemID: keptID}, {LineItemID: removedID}}}},
+		mutationResult: xeroapi.InvoiceMutationResult{Operation: "updated", Resource: "invoice", InvoiceID: invoiceID, TenantID: "tenant-1", Type: "ACCREC", Status: "DRAFT", IdempotencyKey: "update-key"},
+	}
+	deps, stdout, _ := testDependencies(configPath, &fakeStore{token: auth.TokenSet{AccessToken: "token"}}, client, false)
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "update", "--invoice-id", strings.ToUpper(invoiceID), "--file", inputPath, "--replace-line-items", "--idempotency-key", "update-key", "--quiet"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute update: %v", err)
+	}
+	if client.updateReq.InvoiceID != invoiceID || client.updateReq.Invoice.Type != "ACCREC" || client.updateReq.Invoice.InvoiceID != invoiceID {
+		t.Fatalf("expected normalized injected identity, got %+v", client.updateReq)
+	}
+	if client.updateReq.Invoice.Contact != nil || client.updateReq.Invoice.Reference != nil || client.updateReq.Invoice.Status != nil {
+		t.Fatalf("expected absent scalars omitted, got %+v", client.updateReq.Invoice)
+	}
+	if client.updateReq.Invoice.SentToContact == nil || *client.updateReq.Invoice.SentToContact {
+		t.Fatalf("expected explicit false to remain present")
+	}
+	if !strings.Contains(stdout.String(), `"lineItemsReplaced": true`) || !strings.Contains(stdout.String(), `"removedLineItemCount": 1`) || strings.Contains(stdout.String(), `"ok"`) {
+		t.Fatalf("unexpected quiet result: %s", stdout.String())
+	}
+}
+
+func TestInvoiceCreateHumanOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	prepareConfig(t, configPath)
+	prepareSession(t, filepath.Join(tempDir, "session.json"))
+	inputPath := filepath.Join(tempDir, "create.json")
+	if err := os.WriteFile(inputPath, []byte(`{"contactId":"220ddca8-3144-4085-9a88-2d72c5133734","lineItems":[{"description":"Service"}]}`), 0o600); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	client := &fakeLister{mutationResult: xeroapi.InvoiceMutationResult{Operation: "created", Resource: "invoice", InvoiceID: "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0", TenantID: "tenant-1", InvoiceNumber: "INV-1", Type: "ACCREC", Status: "DRAFT", IdempotencyKey: "key"}}
+	deps, stdout, _ := testDependencies(configPath, &fakeStore{token: auth.TokenSet{AccessToken: "token"}}, client, false)
+	cmd := commands.NewRootCommand(deps)
+	cmd.SetArgs([]string{"--config", configPath, "invoices", "create", "--file", inputPath, "--idempotency-key", "key"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute create: %v", err)
+	}
+	if got, want := stdout.String(), "Created invoice INV-1 (88192a99-cbc5-4a66-bf1a-2f9fea2d36d0) for tenant tenant-1 (DRAFT)\nIdempotency key: key\n"; got != want {
+		t.Fatalf("unexpected human output: got %q want %q", got, want)
+	}
+}
+
+func testDependencies(configPath string, store auth.TokenStore, lister xeroapi.InvoiceClient, interactive bool) (commands.Dependencies, *bytes.Buffer, *bytes.Buffer) {
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	return commands.Dependencies{
@@ -779,7 +1022,7 @@ func testDependencies(configPath string, store auth.TokenStore, lister xeroapi.I
 		},
 		NewTokenStore:   func(appconfig.Settings) auth.TokenStore { return store },
 		NewSessionStore: auth.NewSessionStore,
-		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceLister {
+		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceClient {
 			return lister
 		},
 		NewBrowserAuth: func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) commands.Authenticator {
