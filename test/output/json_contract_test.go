@@ -258,6 +258,7 @@ func TestWriteErrorJSONIncludesOptionalMetadata(t *testing.T) {
 		Resource:          "invoice",
 		TenantID:          "tenant-1",
 		InvoiceID:         "220ddca8-3144-4085-9a88-2d72c5133734",
+		ContactID:         "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0",
 		FileName:          "receipt.pdf",
 		IdempotencyKey:    "caller-key",
 		RetryAfterSeconds: 30,
@@ -277,7 +278,7 @@ func TestWriteErrorJSONIncludesOptionalMetadata(t *testing.T) {
 	if envelope.OK || envelope.Error.Kind != "MutationUncertainError" || envelope.Error.ExitCode != clierrors.ExitUncertain {
 		t.Fatalf("unexpected envelope: %+v", envelope)
 	}
-	if !envelope.Error.MayHaveSucceeded || envelope.Error.IdempotencyKey != "caller-key" || envelope.Error.RetryAfterSeconds != 30 || len(envelope.Error.ValidationErrors) != 2 {
+	if !envelope.Error.MayHaveSucceeded || envelope.Error.ContactID != "88192a99-cbc5-4a66-bf1a-2f9fea2d36d0" || envelope.Error.IdempotencyKey != "caller-key" || envelope.Error.RetryAfterSeconds != 30 || len(envelope.Error.ValidationErrors) != 2 {
 		t.Fatalf("unexpected metadata: %+v", envelope.Error.Metadata)
 	}
 }

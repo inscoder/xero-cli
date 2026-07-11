@@ -3,6 +3,7 @@ package output
 import (
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/inscoder/xero-cli/internal/auth"
@@ -42,6 +43,55 @@ func WriteInvoices(writer io.Writer, invoices []xeroapi.Invoice, summary string,
 	return nil
 }
 
+func WriteContacts(writer io.Writer, contacts []xeroapi.Contact, summary string, breadcrumbs []Breadcrumb) error {
+	tw := tabwriter.NewWriter(writer, 0, 2, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "ID\tNAME\tEMAIL\tPHONE\tSTATUS\tCUSTOMER\tSUPPLIER\tUPDATED"); err != nil {
+		return err
+	}
+	for _, contact := range contacts {
+		if _, err := fmt.Fprintf(
+			tw,
+			"%s\t%s\t%s\t%s\t%s\t%t\t%t\t%s\n",
+			contact.ContactID,
+			contact.Name,
+			contact.EmailAddress,
+			contactPhoneNumber(contact.Phones),
+			contact.ContactStatus,
+			contact.IsCustomer,
+			contact.IsSupplier,
+			contact.UpdatedAt,
+		); err != nil {
+			return err
+		}
+	}
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, summary); err != nil {
+		return err
+	}
+	for _, breadcrumb := range breadcrumbs {
+		if _, err := fmt.Fprintf(writer, "Next: %s (%s)\n", breadcrumb.Action, breadcrumb.Cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func contactPhoneNumber(phones []xeroapi.ContactPhone) string {
+	for _, phone := range phones {
+		if strings.EqualFold(phone.PhoneType, "DEFAULT") && strings.TrimSpace(phone.PhoneNumber) != "" {
+			return phone.PhoneNumber
+		}
+	}
+	for _, phone := range phones {
+		if strings.TrimSpace(phone.PhoneNumber) != "" {
+			return phone.PhoneNumber
+		}
+	}
+	return ""
+}
+
 func WriteOnlineInvoiceURL(writer io.Writer, result xeroapi.OnlineInvoiceResult) error {
 	if result.Available {
 		_, err := fmt.Fprintln(writer, result.OnlineInvoiceURL)
@@ -75,6 +125,22 @@ func WriteInvoiceMutation(writer io.Writer, result xeroapi.InvoiceMutationResult
 		verb = "Created"
 	}
 	if _, err := fmt.Fprintf(writer, "%s %s %s for tenant %s (%s)\n", verb, result.Resource, label, result.TenantID, result.Status); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(writer, "Idempotency key: %s\n", result.IdempotencyKey)
+	return err
+}
+
+func WriteContactMutation(writer io.Writer, result xeroapi.ContactMutationResult) error {
+	label := result.ContactID
+	if result.Name != "" {
+		label = fmt.Sprintf("%s (%s)", result.Name, result.ContactID)
+	}
+	verb := "Updated"
+	if result.Operation == "created" {
+		verb = "Created"
+	}
+	if _, err := fmt.Fprintf(writer, "%s contact %s for tenant %s (%s)\n", verb, label, result.TenantID, result.Status); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintf(writer, "Idempotency key: %s\n", result.IdempotencyKey)

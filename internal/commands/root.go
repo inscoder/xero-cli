@@ -38,6 +38,7 @@ type Dependencies struct {
 	NewTokenStore    func(appconfig.Settings) auth.TokenStore
 	NewSessionStore  func(string) *auth.SessionStore
 	NewInvoiceClient func(appconfig.Settings) xeroapi.InvoiceClient
+	NewContactClient func(appconfig.Settings) xeroapi.ContactClient
 	NewBrowserAuth   func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) Authenticator
 	IsTerminal       func(fd int) bool
 	LookPath         func(string) error
@@ -54,6 +55,7 @@ type Runtime struct {
 	Tenants      *auth.TenantStore
 	Auth         Authenticator
 	Xero         xeroapi.InvoiceClient
+	Contacts     xeroapi.ContactClient
 	SessionMeta  auth.SessionMetadata
 	IO           IOStreams
 	LookPath     func(string) error
@@ -150,6 +152,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newProfileCommand(deps, v))
 	root.AddCommand(newInvoicesCommand(deps, v))
 	root.AddCommand(newBillsCommand(deps, v))
+	root.AddCommand(newContactsCommand(deps, v))
 	root.AddCommand(newDoctorCommand(deps, v))
 	root.AddCommand(newVersionCommand(deps))
 
@@ -164,6 +167,9 @@ func defaultDependencies(version string) Dependencies {
 		NewTokenStore:   func(settings appconfig.Settings) auth.TokenStore { return auth.NewTokenStore(settings) },
 		NewSessionStore: auth.NewSessionStore,
 		NewInvoiceClient: func(settings appconfig.Settings) xeroapi.InvoiceClient {
+			return xeroapi.NewClient(settings, xeroapi.ClientOptions{})
+		},
+		NewContactClient: func(settings appconfig.Settings) xeroapi.ContactClient {
 			return xeroapi.NewClient(settings, xeroapi.ClientOptions{})
 		},
 		NewBrowserAuth: func(settings appconfig.Settings, store auth.TokenStore, tenants *auth.TenantStore, in io.Reader, errOut io.Writer) Authenticator {
@@ -229,6 +235,10 @@ func loadRuntime(deps Dependencies, v *viper.Viper) (*Runtime, error) {
 		return nil, err
 	}
 	tenants := auth.NewTenantStore(manager, session, deps.IO.In, deps.IO.ErrOut)
+	var contacts xeroapi.ContactClient
+	if deps.NewContactClient != nil {
+		contacts = deps.NewContactClient(settings)
+	}
 	runtime := &Runtime{
 		Settings:     settings,
 		Config:       manager,
@@ -237,6 +247,7 @@ func loadRuntime(deps Dependencies, v *viper.Viper) (*Runtime, error) {
 		Tenants:      tenants,
 		Auth:         deps.NewBrowserAuth(settings, tokens, tenants, deps.IO.In, deps.IO.ErrOut),
 		Xero:         deps.NewInvoiceClient(settings),
+		Contacts:     contacts,
 		SessionMeta:  meta,
 		IO:           deps.IO,
 		LookPath:     deps.LookPath,

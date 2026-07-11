@@ -261,7 +261,7 @@ func validateOptionalDate(field string, value *string) error {
 }
 
 func validateUUIDValue(field, value string) error {
-	if !invoiceIDPattern.MatchString(value) {
+	if !uuidPattern.MatchString(value) {
 		return clierrors.New(clierrors.KindValidation, field+" must be a valid UUID")
 	}
 	return nil

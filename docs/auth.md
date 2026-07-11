@@ -138,10 +138,10 @@ For a simple setup, use the default file key. For stronger local protection, use
 
 ## Accounting write scopes
 
-Invoice and bill create/update commands require the granular `accounting.invoices` scope. Attachment upload additionally requires `accounting.attachments`. A typical override is:
+Invoice and bill create/update commands require the granular `accounting.invoices` scope. Attachment upload additionally requires `accounting.attachments`. Contact create, update, and archive commands require `accounting.contacts`; a list-only profile may instead use `accounting.contacts.read`. A typical write-capable override is:
 
 ```bash
-export XERO_SCOPES="accounting.invoices accounting.attachments accounting.contacts.read"
+export XERO_SCOPES="accounting.invoices accounting.attachments accounting.contacts"
 xero login -p my-company
 ```
 
