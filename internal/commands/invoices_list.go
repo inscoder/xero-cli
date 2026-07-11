@@ -15,9 +15,7 @@ import (
 )
 
 var (
-	invoiceIDPattern  = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	orderFieldPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9.]*$`)
-	whereTypePattern  = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.])Type\s*(?:==|!=|=)`)
+	whereTypePattern = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_.])Type\s*(?:==|!=|=)`)
 )
 
 var validInvoiceStatuses = map[string]struct{}{
@@ -166,18 +164,7 @@ func normalizeInvoiceID(value string) (string, error) {
 }
 
 func normalizeInvoiceIDs(values []string) ([]string, error) {
-	normalized := make([]string, 0, len(values))
-	for _, value := range values {
-		candidate := strings.TrimSpace(value)
-		if candidate == "" {
-			return nil, clierrors.New(clierrors.KindValidation, "--invoice-id values must not be empty")
-		}
-		if !invoiceIDPattern.MatchString(candidate) {
-			return nil, clierrors.New(clierrors.KindValidation, "--invoice-id must be a valid UUID")
-		}
-		normalized = append(normalized, strings.ToLower(candidate))
-	}
-	return normalized, nil
+	return normalizeUUIDs(values, "--invoice-id")
 }
 
 func normalizeStatuses(values []string) ([]string, error) {
@@ -196,20 +183,5 @@ func normalizeStatuses(values []string) ([]string, error) {
 }
 
 func normalizeOrder(value string, changed bool) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		if changed {
-			return "", clierrors.New(clierrors.KindValidation, "--order must not be empty")
-		}
-		return defaultInvoiceOrder, nil
-	}
-	parts := strings.Fields(trimmed)
-	if len(parts) != 2 || !orderFieldPattern.MatchString(parts[0]) {
-		return "", clierrors.New(clierrors.KindValidation, "--order must use '<Field> <ASC|DESC>'")
-	}
-	direction := strings.ToUpper(parts[1])
-	if direction != "ASC" && direction != "DESC" {
-		return "", clierrors.New(clierrors.KindValidation, "--order must use '<Field> <ASC|DESC>'")
-	}
-	return parts[0] + " " + direction, nil
+	return normalizeOrderClause(value, changed, defaultInvoiceOrder)
 }

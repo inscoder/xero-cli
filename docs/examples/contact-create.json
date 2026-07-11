@@ -1,0 +1,8 @@
+{
+  "name": "Acme Corp",
+  "contactNumber": "ACME-001",
+  "firstName": "Alex",
+  "lastName": "Smith",
+  "emailAddress": "acme@example.com",
+  "phone": "+1234567890"
+}

@@ -239,40 +239,40 @@ type onlineInvoicePayload struct {
 }
 
 type invoicePayload struct {
-	InvoiceID           string              `json:"InvoiceID"`
-	Type                string              `json:"Type"`
-	InvoiceNumber       string              `json:"InvoiceNumber"`
-	Reference           string              `json:"Reference"`
-	Contact             contactPayload      `json:"Contact"`
-	Date                string              `json:"Date"`
-	DueDate             string              `json:"DueDate"`
-	Status              string              `json:"Status"`
-	LineAmountTypes     string              `json:"LineAmountTypes"`
-	LineItems           []lineItemPayload   `json:"LineItems"`
-	SubTotal            float64             `json:"SubTotal"`
-	TotalTax            float64             `json:"TotalTax"`
-	Total               float64             `json:"Total"`
-	TotalDiscount       float64             `json:"TotalDiscount"`
-	AmountDue           float64             `json:"AmountDue"`
-	AmountPaid          float64             `json:"AmountPaid"`
-	AmountCredited      float64             `json:"AmountCredited"`
-	CurrencyCode        string              `json:"CurrencyCode"`
-	CurrencyRate        float64             `json:"CurrencyRate"`
-	UpdatedDateUTC      string              `json:"UpdatedDateUTC"`
-	BrandingThemeID     string              `json:"BrandingThemeID"`
-	URL                 string              `json:"Url"`
-	SentToContact       bool                `json:"SentToContact"`
-	ExpectedPaymentDate string              `json:"ExpectedPaymentDate"`
-	PlannedPaymentDate  string              `json:"PlannedPaymentDate"`
-	HasAttachments      bool                `json:"HasAttachments"`
-	Attachments         []attachmentPayload `json:"Attachments"`
-	HasErrors           bool                `json:"HasErrors"`
-	ValidationErrors    []messagePayload    `json:"ValidationErrors"`
-	Warnings            []messagePayload    `json:"Warnings"`
-	Payments            []paymentPayload    `json:"Payments"`
-	CreditNotes         []creditNotePayload `json:"CreditNotes"`
-	Prepayments         []allocationPayload `json:"Prepayments"`
-	Overpayments        []allocationPayload `json:"Overpayments"`
+	InvoiceID           string                `json:"InvoiceID"`
+	Type                string                `json:"Type"`
+	InvoiceNumber       string                `json:"InvoiceNumber"`
+	Reference           string                `json:"Reference"`
+	Contact             invoiceContactPayload `json:"Contact"`
+	Date                string                `json:"Date"`
+	DueDate             string                `json:"DueDate"`
+	Status              string                `json:"Status"`
+	LineAmountTypes     string                `json:"LineAmountTypes"`
+	LineItems           []lineItemPayload     `json:"LineItems"`
+	SubTotal            float64               `json:"SubTotal"`
+	TotalTax            float64               `json:"TotalTax"`
+	Total               float64               `json:"Total"`
+	TotalDiscount       float64               `json:"TotalDiscount"`
+	AmountDue           float64               `json:"AmountDue"`
+	AmountPaid          float64               `json:"AmountPaid"`
+	AmountCredited      float64               `json:"AmountCredited"`
+	CurrencyCode        string                `json:"CurrencyCode"`
+	CurrencyRate        float64               `json:"CurrencyRate"`
+	UpdatedDateUTC      string                `json:"UpdatedDateUTC"`
+	BrandingThemeID     string                `json:"BrandingThemeID"`
+	URL                 string                `json:"Url"`
+	SentToContact       bool                  `json:"SentToContact"`
+	ExpectedPaymentDate string                `json:"ExpectedPaymentDate"`
+	PlannedPaymentDate  string                `json:"PlannedPaymentDate"`
+	HasAttachments      bool                  `json:"HasAttachments"`
+	Attachments         []attachmentPayload   `json:"Attachments"`
+	HasErrors           bool                  `json:"HasErrors"`
+	ValidationErrors    []messagePayload      `json:"ValidationErrors"`
+	Warnings            []messagePayload      `json:"Warnings"`
+	Payments            []paymentPayload      `json:"Payments"`
+	CreditNotes         []creditNotePayload   `json:"CreditNotes"`
+	Prepayments         []allocationPayload   `json:"Prepayments"`
+	Overpayments        []allocationPayload   `json:"Overpayments"`
 }
 
 type attachmentPayload struct {
@@ -291,7 +291,7 @@ type messagePayload struct {
 	Message string `json:"Message"`
 }
 
-type contactPayload struct {
+type invoiceContactPayload struct {
 	ContactID     string `json:"ContactID"`
 	Name          string `json:"Name"`
 	ContactNumber string `json:"ContactNumber"`
@@ -353,6 +353,7 @@ type apiErrorPayload struct {
 	Elements         []apiErrorElementPayload `json:"Elements"`
 	Invoices         []invoicePayload         `json:"Invoices"`
 	Attachments      []attachmentPayload      `json:"Attachments"`
+	Contacts         []contactResponsePayload `json:"Contacts"`
 }
 
 type apiErrorElementPayload struct {
@@ -662,6 +663,9 @@ func collectAPIValidationErrors(payload apiErrorPayload) []string {
 	for _, attachment := range payload.Attachments {
 		messages = appendMessagePayloads(messages, attachment.ValidationErrors)
 	}
+	for _, contact := range payload.Contacts {
+		messages = appendMessagePayloads(messages, contact.ValidationErrors)
+	}
 	return uniqueMessages(messages)
 }
 
@@ -728,7 +732,7 @@ func normalizeInvoice(item invoicePayload) Invoice {
 		Type:                item.Type,
 		InvoiceNumber:       item.InvoiceNumber,
 		Reference:           item.Reference,
-		Contact:             normalizeContact(item.Contact),
+		Contact:             normalizeInvoiceContact(item.Contact),
 		Date:                normalizeDate(item.Date),
 		DueDate:             normalizeDate(item.DueDate),
 		Status:              item.Status,
@@ -781,7 +785,7 @@ func normalizeAttachments(raw []attachmentPayload) []InvoiceAttachment {
 	return attachments
 }
 
-func normalizeContact(raw contactPayload) InvoiceContact {
+func normalizeInvoiceContact(raw invoiceContactPayload) InvoiceContact {
 	return InvoiceContact{
 		ContactID:     raw.ContactID,
 		Name:          raw.Name,

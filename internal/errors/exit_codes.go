@@ -47,6 +47,7 @@ type Metadata struct {
 	Resource          string   `json:"resource,omitempty"`
 	TenantID          string   `json:"tenantId,omitempty"`
 	InvoiceID         string   `json:"invoiceId,omitempty"`
+	ContactID         string   `json:"contactId,omitempty"`
 	FileName          string   `json:"fileName,omitempty"`
 	IdempotencyKey    string   `json:"idempotencyKey,omitempty"`
 	RetryAfterSeconds int      `json:"retryAfterSeconds,omitempty"`
