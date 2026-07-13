@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -78,6 +79,7 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 		RedirectURL:    callbackURL,
 		ListenAddress:  listenAddress,
 		Now:            func() time.Time { return fixedNow },
+		UseManualFlow:  func() bool { return false },
 		OpenBrowser: func(target string) error {
 			resp, err := authServer.Client().Get(target)
 			if err != nil {
@@ -112,6 +114,115 @@ func TestBrowserAuthLoginPersistsSessionAndDiscoversTenant(t *testing.T) {
 	if meta.DefaultTenant.ID != "tenant-1" {
 		t.Fatalf("expected session tenant to persist, got %+v", meta.DefaultTenant)
 	}
+}
+
+func TestBrowserAuthManualLoginPrintsAuthorizationURLAndAcceptsCallbackURL(t *testing.T) {
+	fixedNow := time.Date(2026, 7, 13, 9, 0, 0, 0, time.UTC)
+	authServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("parse token form: %v", err)
+			}
+			if r.Form.Get("code") != "manual-code" {
+				t.Fatalf("unexpected authorization code: %q", r.Form.Get("code"))
+			}
+			_, _ = io.WriteString(w, `{"access_token":"manual-access","refresh_token":"manual-refresh","token_type":"Bearer","expires_in":1800,"scope":"offline_access"}`)
+		case "/connections":
+			_, _ = io.WriteString(w, `[{"tenantId":"tenant-1","tenantName":"Acme","tenantType":"ORGANISATION"}]`)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer authServer.Close()
+
+	tempDir := t.TempDir()
+	v := viper.New()
+	appconfig.ConfigureViper(v)
+	v.Set("config", tempDir+"/config.json")
+	v.Set("client_id", "client-123")
+	v.Set("auth.callback_timeout", "10s")
+	manager, err := appconfig.NewManager(v)
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	settings, err := manager.Load(false, "test")
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+
+	callbackURL := "http://localhost:8742/callback"
+	output := &authorizationURLCapture{authorizeBase: authServer.URL + "/authorize"}
+	input := &manualCallbackReader{capture: output, callbackURL: callbackURL}
+	tokenStore := auth.NewTokenStore(settings)
+	sessionStore := auth.NewSessionStore(settings.SessionFilePath)
+	tenantStore := auth.NewTenantStore(manager, sessionStore, strings.NewReader(""), io.Discard)
+	openCalled := false
+	browserAuth := auth.NewBrowserAuthWithOptions(settings, tokenStore, tenantStore, input, output, auth.BrowserAuthOptions{
+		HTTPClient:     authServer.Client(),
+		AuthorizeURL:   authServer.URL + "/authorize",
+		TokenURL:       authServer.URL + "/token",
+		ConnectionsURL: authServer.URL + "/connections",
+		RedirectURL:    callbackURL,
+		Now:            func() time.Time { return fixedNow },
+		UseManualFlow:  func() bool { return true },
+		OpenBrowser: func(string) error {
+			openCalled = true
+			return nil
+		},
+	})
+
+	result, err := browserAuth.Login(context.Background())
+	if err != nil {
+		t.Fatalf("manual login: %v", err)
+	}
+	if openCalled {
+		t.Fatal("expected manual login not to launch a browser")
+	}
+	if result.Token.AccessToken != "manual-access" || result.Default.ID != "tenant-1" {
+		t.Fatalf("unexpected login result: %+v", result)
+	}
+	if !strings.Contains(output.String(), "Open this URL in your browser") || !strings.Contains(output.String(), authServer.URL+"/authorize?") {
+		t.Fatalf("expected authorization instructions and URL, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), "paste it here") {
+		t.Fatalf("expected callback paste prompt, got %q", output.String())
+	}
+}
+
+type authorizationURLCapture struct {
+	strings.Builder
+	authorizeBase string
+	authorizeURL  string
+}
+
+func (w *authorizationURLCapture) Write(p []byte) (int, error) {
+	n, err := w.Builder.Write(p)
+	for _, line := range strings.Split(string(p), "\n") {
+		if strings.HasPrefix(line, w.authorizeBase+"?") {
+			w.authorizeURL = line
+		}
+	}
+	return n, err
+}
+
+type manualCallbackReader struct {
+	capture     *authorizationURLCapture
+	callbackURL string
+	reader      *strings.Reader
+}
+
+func (r *manualCallbackReader) Read(p []byte) (int, error) {
+	if r.reader == nil {
+		authorizeURL, err := url.Parse(r.capture.authorizeURL)
+		if err != nil {
+			return 0, err
+		}
+		state := authorizeURL.Query().Get("state")
+		callback := r.callbackURL + "?code=manual-code&state=" + url.QueryEscape(state) + "\n"
+		r.reader = strings.NewReader(callback)
+	}
+	return r.reader.Read(p)
 }
 
 func freePort(t *testing.T) int {

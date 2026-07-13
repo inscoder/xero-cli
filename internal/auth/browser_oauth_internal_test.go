@@ -36,6 +36,16 @@ func TestDefaultBrowserCommands(t *testing.T) {
 	}
 }
 
+func TestIsHeadlessEnvironmentDetectsSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "192.0.2.10 50000 192.0.2.20 22")
+	t.Setenv("SSH_CLIENT", "")
+	t.Setenv("SSH_TTY", "")
+
+	if !isHeadlessEnvironment() {
+		t.Fatal("expected an SSH session to use manual OAuth")
+	}
+}
+
 func TestOpenBrowserUsesConfiguredCommand(t *testing.T) {
 	originalStart := startBrowserProcess
 	startBrowserProcess = func(command string, args ...string) error {

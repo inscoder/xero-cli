@@ -79,6 +79,8 @@ Normal API commands use the active profile selected by `-p, --profile` or `XERO_
 
 `xero login` starts a local OAuth callback on `http://localhost:8742/callback`, opens the system browser, exchanges the authorization code using PKCE S256, and listens on both IPv4 and IPv6 loopback addresses when available before saving the selected tenant with the active profile token.
 
+On SSH and headless Linux sessions, the CLI automatically prints the authorization URL instead. Open it in a browser, complete Xero authentication, then copy the full `http://localhost:8742/callback?...` URL from the browser address bar and paste it into the terminal. Use `xero login --no-browser` (or `XERO_AUTH_NO_BROWSER=true`) to force this flow in any environment.
+
 Use profiles to switch organisations or OAuth apps: `xero invoices -p my-company`. There is no temporary tenant override; login/profile selection controls the connected organisation.
 
 Xero access tokens are short-lived, typically 30 minutes. The CLI refreshes when the stored `expiresAt` is within one minute of expiry.

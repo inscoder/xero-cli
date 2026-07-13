@@ -139,7 +139,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().Bool("json", false, "emit JSON envelope on stdout")
 	root.PersistentFlags().Bool("quiet", false, "emit raw data only on stdout")
 	root.PersistentFlags().StringP("profile", "p", "", "Xero profile name")
-	root.PersistentFlags().Bool("no-browser", false, "fail instead of opening a browser")
+	root.PersistentFlags().Bool("no-browser", false, "do not launch a browser; login uses a pasted callback URL")
 
 	mustBind(v, "config", root.PersistentFlags().Lookup("config"))
 	mustBind(v, "output.json", root.PersistentFlags().Lookup("json"))

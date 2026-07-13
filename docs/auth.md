@@ -18,6 +18,7 @@ The first profile becomes the default. API commands accept `-p, --profile`, and 
 - generates a PKCE verifier and `state`
 - listens on `localhost:8742` and accepts both IPv4 and IPv6 loopback traffic when available
 - opens the system browser to Xero login
+- detects SSH and headless Linux sessions and uses a copy/paste callback flow instead
 - validates `state` on callback before exchanging the code
 - discovers connected Xero tenants from `/connections`
 - prompts for a tenant when multiple tenants are returned
@@ -132,6 +133,7 @@ For a simple setup, use the default file key. For stronger local protection, use
 - local development: copy `.env.example` to `.env` and set `XERO_PROFILE`; set `XERO_CLIENT_ID` only for login setup if needed
 - invalid scope for client: pass `--scope` or set `XERO_SCOPES` to the exact scopes allowed by your Xero app
 - Linux browser launch: the CLI uses `xdg-open` by default; override with `XERO_AUTH_OPEN_COMMAND` if your distro uses a different opener
+- remote or headless login: run `xero login --no-browser`, open the printed URL in a browser, then paste the full callback URL back into the terminal; `XERO_AUTH_NO_BROWSER=true` provides the same override
 - callback timeout: verify the browser can reach `http://localhost:8742/callback` and that port `8742` is free
 - wrong organisation: run `xero login -p <profile>` and select the intended tenant, or use a different profile
 - token storage: inspect `~/.config/xero/tokens.json` and `.encryption-key` permissions and rerun `xero doctor`
