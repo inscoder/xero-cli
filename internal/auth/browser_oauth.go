@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -44,6 +45,7 @@ type BrowserAuth struct {
 	settings       appconfig.Settings
 	httpClient     *http.Client
 	openBrowser    func(string) error
+	useManualFlow  func() bool
 	now            func() time.Time
 	authorizeURL   string
 	tokenURL       string
@@ -59,6 +61,7 @@ type BrowserAuth struct {
 type BrowserAuthOptions struct {
 	HTTPClient     *http.Client
 	OpenBrowser    func(string) error
+	UseManualFlow  func() bool
 	Now            func() time.Time
 	AuthorizeURL   string
 	TokenURL       string
@@ -106,10 +109,15 @@ func NewBrowserAuthWithOptions(settings appconfig.Settings, store TokenStore, te
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
+	useManualFlow := options.UseManualFlow
+	if useManualFlow == nil {
+		useManualFlow = isHeadlessEnvironment
+	}
 	return &BrowserAuth{
 		settings:       settings,
 		httpClient:     client,
 		openBrowser:    open,
+		useManualFlow:  useManualFlow,
 		now:            now,
 		authorizeURL:   firstNonEmpty(options.AuthorizeURL, authorizeEndpoint),
 		tokenURL:       firstNonEmpty(options.TokenURL, tokenEndpoint),
@@ -193,20 +201,25 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 		return LoginResult{}, clierrors.Wrap(clierrors.KindInternal, "generate OAuth state", err)
 	}
 
+	authURL := buildAuthorizeURL(a.authorizeURL, a.settings.ClientID, a.redirectURL, a.settings.XeroScopes, state, codeVerifier)
+
+	ctx, cancel := context.WithTimeout(ctx, a.settings.CallbackTimeout)
+	defer cancel()
+
+	if a.settings.NoBrowser || a.useManualFlow() {
+		return a.loginManually(ctx, authURL, state, codeVerifier)
+	}
+
 	callbackURL, err := url.Parse(a.redirectURL)
 	if err != nil {
 		return LoginResult{}, clierrors.Wrap(clierrors.KindValidation, "parse configured OAuth redirect URL", err)
 	}
 	listeners, err := listenLoopback(a.listenAddress)
 	if err != nil {
-		return LoginResult{}, clierrors.Wrap(clierrors.KindNetwork, fmt.Sprintf("start OAuth callback listener on %s", a.listenAddress), err)
+		fmt.Fprintf(a.errOut, "Local OAuth callback listener is unavailable (%v); switching to manual authentication.\n", err)
+		return a.loginManually(ctx, authURL, state, codeVerifier)
 	}
 	defer closeListeners(listeners)
-
-	authURL := buildAuthorizeURL(a.authorizeURL, a.settings.ClientID, a.redirectURL, a.settings.XeroScopes, state, codeVerifier)
-
-	ctx, cancel := context.WithTimeout(ctx, a.settings.CallbackTimeout)
-	defer cancel()
 
 	resultCh := make(chan url.Values, 1)
 	errCh := make(chan error, 1)
@@ -235,16 +248,8 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 	defer server.Shutdown(context.Background())
 
 	if err := a.openBrowser(authURL); err != nil {
-		fmt.Fprintf(a.errOut, "Open this URL to authorize Xero CLI:\n%s\n", authURL)
-		fmt.Fprintln(a.errOut, "If the browser cannot redirect back automatically, paste the final redirected URL here:")
-		pasted, parseErr := readManualRedirect(ctx, a.in)
-		if parseErr != nil {
-			return LoginResult{}, parseErr
-		}
-		if pasted.Get("state") != state {
-			return LoginResult{}, clierrors.New(clierrors.KindAuthRequired, "pasted redirect URL had an invalid OAuth state")
-		}
-		return a.finishLogin(ctx, a.redirectURL, codeVerifier, pasted.Get("code"))
+		fmt.Fprintf(a.errOut, "Could not open a browser automatically (%v); switching to manual authentication.\n", err)
+		return a.loginManually(ctx, authURL, state, codeVerifier)
 	}
 
 	fmt.Fprintln(a.errOut, "Waiting for browser authentication callback...")
@@ -256,6 +261,46 @@ func (a *BrowserAuth) Login(ctx context.Context) (LoginResult, error) {
 	case values := <-resultCh:
 		return a.finishLogin(ctx, a.redirectURL, codeVerifier, values.Get("code"))
 	}
+}
+
+func (a *BrowserAuth) loginManually(ctx context.Context, authURL, expectedState, codeVerifier string) (LoginResult, error) {
+	fmt.Fprintf(a.errOut, "Open this URL in your browser to authorize Xero CLI:\n\n%s\n\n", authURL)
+	fmt.Fprintln(a.errOut, "After authorizing, copy the full callback URL from the browser address bar and paste it here:")
+	callback, err := readManualRedirect(ctx, a.in)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	expectedCallback, err := url.Parse(a.redirectURL)
+	if err != nil {
+		return LoginResult{}, clierrors.Wrap(clierrors.KindValidation, "parse configured OAuth redirect URL", err)
+	}
+	if !strings.EqualFold(callback.Scheme, expectedCallback.Scheme) || !strings.EqualFold(callback.Host, expectedCallback.Host) || callback.Path != expectedCallback.Path {
+		return LoginResult{}, clierrors.New(clierrors.KindValidation, "pasted URL is not the expected Xero OAuth callback URL")
+	}
+	values := callback.Query()
+	if oauthError := strings.TrimSpace(values.Get("error")); oauthError != "" {
+		description := strings.TrimSpace(values.Get("error_description"))
+		if description == "" {
+			description = oauthError
+		}
+		return LoginResult{}, clierrors.New(clierrors.KindAuthRequired, "Xero authorization failed: "+description)
+	}
+	if values.Get("state") != expectedState {
+		return LoginResult{}, clierrors.New(clierrors.KindAuthRequired, "pasted callback URL had an invalid OAuth state")
+	}
+	if strings.TrimSpace(values.Get("code")) == "" {
+		return LoginResult{}, clierrors.New(clierrors.KindValidation, "pasted callback URL is missing the OAuth authorization code")
+	}
+	return a.finishLogin(ctx, a.redirectURL, codeVerifier, values.Get("code"))
+}
+
+func isHeadlessEnvironment() bool {
+	for _, name := range []string{"SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"} {
+		if strings.TrimSpace(os.Getenv(name)) != "" {
+			return true
+		}
+	}
+	return runtime.GOOS == "linux" && strings.TrimSpace(os.Getenv("DISPLAY")) == "" && strings.TrimSpace(os.Getenv("WAYLAND_DISPLAY")) == ""
 }
 
 func (a *BrowserAuth) EnsureFreshToken(ctx context.Context, token TokenSet, interactive bool) (TokenSet, bool, error) {
@@ -299,10 +344,10 @@ func buildAuthorizeURL(baseURL, clientID, redirectURI string, scopes []string, s
 	return baseURL + "?" + values.Encode()
 }
 
-func readManualRedirect(ctx context.Context, in io.Reader) (url.Values, error) {
+func readManualRedirect(ctx context.Context, in io.Reader) (*url.URL, error) {
 	type response struct {
-		values url.Values
-		err    error
+		callback *url.URL
+		err      error
 	}
 	resultCh := make(chan response, 1)
 	go func() {
@@ -317,14 +362,14 @@ func readManualRedirect(ctx context.Context, in io.Reader) (url.Values, error) {
 			resultCh <- response{err: clierrors.Wrap(clierrors.KindValidation, "parse pasted redirect URL", parseErr)}
 			return
 		}
-		resultCh <- response{values: parsed.Query()}
+		resultCh <- response{callback: parsed}
 	}()
 
 	select {
 	case <-ctx.Done():
 		return nil, clierrors.Wrap(clierrors.KindAuthRequired, "timed out waiting for pasted redirect URL", ctx.Err())
 	case result := <-resultCh:
-		return result.values, result.err
+		return result.callback, result.err
 	}
 }
 

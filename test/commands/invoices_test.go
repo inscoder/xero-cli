@@ -221,6 +221,7 @@ func TestLoginUsesInlineClientID(t *testing.T) {
 
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
+	var loginSettings appconfig.Settings
 	deps := commands.Dependencies{
 		Version: "test",
 		IO:      commands.IOStreams{In: bytes.NewBuffer(nil), Out: stdout, ErrOut: stderr},
@@ -232,7 +233,8 @@ func TestLoginUsesInlineClientID(t *testing.T) {
 		NewInvoiceClient: func(appconfig.Settings) xeroapi.InvoiceClient {
 			return &fakeLister{}
 		},
-		NewBrowserAuth: func(appconfig.Settings, auth.TokenStore, *auth.TenantStore, io.Reader, io.Writer) commands.Authenticator {
+		NewBrowserAuth: func(settings appconfig.Settings, _ auth.TokenStore, _ *auth.TenantStore, _ io.Reader, _ io.Writer) commands.Authenticator {
+			loginSettings = settings
 			return fakeAuth{loginResult: auth.LoginResult{
 				Token:   auth.TokenSet{AuthMode: "browser_oauth", GeneratedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 3, 10, 12, 30, 0, 0, time.UTC)},
 				Tenants: []auth.Tenant{{ID: "tenant-1", Name: "Acme", Type: "ORGANISATION"}},
@@ -247,7 +249,7 @@ func TestLoginUsesInlineClientID(t *testing.T) {
 	}
 
 	cmd := commands.NewRootCommand(deps)
-	cmd.SetArgs([]string{"--config", configPath, "--client-id", "client-from-flag", "login", "--json"})
+	cmd.SetArgs([]string{"--config", configPath, "--client-id", "client-from-flag", "login", "--no-browser", "--json"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute login: %v", err)
 	}
@@ -256,6 +258,9 @@ func TestLoginUsesInlineClientID(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if loginSettings.ClientID != "client-from-flag" || !loginSettings.NoBrowser {
+		t.Fatalf("expected inline client ID and no-browser settings, got %+v", loginSettings)
 	}
 }
 
